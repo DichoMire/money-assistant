@@ -32,7 +32,7 @@ const METHOD_TABS: { method: SplitMethod; tab: string; hint: string }[] = [
   { method: "exact", tab: "1.23", hint: "Specify exactly how much each person owes." },
   { method: "percent", tab: "%", hint: "Enter the percentage of the bill each person owes." },
   { method: "shares", tab: "shares", hint: "Split by shares — great for time-based or per-family splitting." },
-  { method: "adjustment", tab: "+/-", hint: "Everyone splits equally, plus or minus the adjustments you enter." },
+  { method: "adjustment", tab: "+/-", hint: "Selected people split equally, plus or minus the adjustments you enter." },
 ];
 
 export function ExpenseModal({
@@ -67,10 +67,11 @@ export function ExpenseModal({
   });
 
   const [method, setMethod] = useState<SplitMethod>(expense?.splitMethod ?? "equal");
-  const [equalSel, setEqualSel] = useState<Record<string, boolean>>(() => {
+  // Who participates in the split — the check toggle applies to every method.
+  const [included, setIncluded] = useState<Record<string, boolean>>(() => {
     const sel: Record<string, boolean> = {};
-    const included = expense?.splitMethod === "equal" ? new Set(expense.shares.map((s) => s.aliasId)) : null;
-    for (const a of aliases) sel[a.id] = included ? included.has(a.id) : true;
+    const present = expense ? new Set(expense.shares.map((s) => s.aliasId)) : null;
+    for (const a of aliases) sel[a.id] = present ? present.has(a.id) : true;
     return sel;
   });
   const initialValues = (want: SplitMethod, toStr: (v: number) => string): Values => {
@@ -129,11 +130,12 @@ export function ExpenseModal({
       return value;
     };
     if (method === "equal") {
-      for (const a of aliases) if (equalSel[a.id]) entries.push({ aliasId: a.id, value: 0 });
+      for (const a of aliases) if (included[a.id]) entries.push({ aliasId: a.id, value: 0 });
     } else {
       const values =
         method === "exact" ? exactVals : method === "percent" ? percentVals : method === "shares" ? sharesVals : adjustVals;
       for (const a of aliases) {
+        if (!included[a.id]) continue;
         const value = readNumber(values, a.id);
         if (value === "invalid") return { entries: null, error: `Invalid value for ${a.name}.` };
         if (method === "adjustment") entries.push({ aliasId: a.id, value: value ?? 0 });
@@ -143,7 +145,7 @@ export function ExpenseModal({
     const computed = computeShares(method, totalCents!, entries, currency);
     if (!computed.ok) return { entries: null, error: computed.error };
     return { entries, error: null, shares: computed.shares };
-  }, [amountValid, method, aliases, equalSel, exactVals, percentVals, sharesVals, adjustVals, totalCents, currency]);
+  }, [amountValid, method, aliases, included, exactVals, percentVals, sharesVals, adjustVals, totalCents, currency]);
 
   const owedByAlias = new Map((splitResult.shares ?? []).map((s) => [s.aliasId, s.owedCents]));
 
@@ -320,12 +322,14 @@ export function ExpenseModal({
   const splitFooter = () => {
     if (!amountValid) return null;
     const total = totalCents!;
+    const includedAliases = aliases.filter((a) => included[a.id]);
+    if (includedAliases.length === 0) {
+      return <p className="text-sm font-semibold text-red-600">Select at least one person.</p>;
+    }
     switch (method) {
       case "equal": {
-        const count = aliases.filter((a) => equalSel[a.id]).length;
-        return count === 0 ? (
-          <p className="text-sm font-semibold text-red-600">Select at least one person.</p>
-        ) : (
+        const count = includedAliases.length;
+        return (
           <p className="text-sm font-semibold text-gray-500">
             {formatCents(Math.round(total / count), currency)}/person ({count}{" "}
             {count === 1 ? "person" : "people"})
@@ -333,7 +337,7 @@ export function ExpenseModal({
         );
       }
       case "exact": {
-        const entered = aliases.reduce((sum, a) => sum + (parseAmount((exactVals[a.id] ?? "").trim() || "0") ?? 0), 0);
+        const entered = includedAliases.reduce((sum, a) => sum + (parseAmount((exactVals[a.id] ?? "").trim() || "0") ?? 0), 0);
         const ok = entered === total;
         return (
           <p className={`text-sm font-semibold ${ok ? "text-gray-500" : "text-red-600"}`}>
@@ -343,7 +347,7 @@ export function ExpenseModal({
         );
       }
       case "percent": {
-        const entered = aliases.reduce((sum, a) => sum + (parseNumber((percentVals[a.id] ?? "").trim() || "0") ?? 0), 0);
+        const entered = includedAliases.reduce((sum, a) => sum + (parseNumber((percentVals[a.id] ?? "").trim() || "0") ?? 0), 0);
         const ok = Math.abs(entered - 100) <= 0.01;
         return (
           <p className={`text-sm font-semibold ${ok ? "text-gray-500" : "text-red-600"}`}>
@@ -352,17 +356,17 @@ export function ExpenseModal({
         );
       }
       case "shares": {
-        const entered = aliases.reduce((sum, a) => sum + (parseNumber((sharesVals[a.id] ?? "").trim() || "0") ?? 0), 0);
+        const entered = includedAliases.reduce((sum, a) => sum + (parseNumber((sharesVals[a.id] ?? "").trim() || "0") ?? 0), 0);
         return <p className="text-sm font-semibold text-gray-500">{Math.round(entered * 100) / 100} total shares</p>;
       }
       case "adjustment": {
-        const adjustments = aliases.reduce((sum, a) => sum + (parseAmount((adjustVals[a.id] ?? "").trim() || "0") ?? 0), 0);
+        const adjustments = includedAliases.reduce((sum, a) => sum + (parseAmount((adjustVals[a.id] ?? "").trim() || "0") ?? 0), 0);
         const remaining = total - adjustments;
         return remaining < 0 ? (
           <p className="text-sm font-semibold text-red-600">Adjustments exceed the total.</p>
         ) : (
           <p className="text-sm font-semibold text-gray-500">
-            {formatCents(remaining, currency)} split equally between {aliases.length} on top of adjustments
+            {formatCents(remaining, currency)} split equally between {includedAliases.length} on top of adjustments
           </p>
         );
       }
@@ -394,32 +398,36 @@ export function ExpenseModal({
       </p>
 
       <div className="max-h-64 space-y-1 overflow-y-auto">
-        {aliases.map((a) => (
-          <div key={a.id} className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-gray-50">
-            {method === "equal" ? (
+        {aliases.map((a) => {
+          const isIncluded = !!included[a.id];
+          return (
+            <div key={a.id} className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-gray-50">
               <button
                 type="button"
                 className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
-                onClick={() => setEqualSel({ ...equalSel, [a.id]: !equalSel[a.id] })}
+                title={isIncluded ? "Click to exclude from this split" : "Click to include in this split"}
+                onClick={() => setIncluded({ ...included, [a.id]: !isIncluded })}
               >
-                <CheckDot checked={!!equalSel[a.id]} />
+                <CheckDot checked={isIncluded} />
                 <Avatar id={a.id} name={a.name} size={28} />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-700">{a.name}</span>
-                {equalSel[a.id] && owedByAlias.has(a.id) && (
-                  <span className="text-sm font-semibold text-gray-500">
-                    {formatCents(owedByAlias.get(a.id)!, currency)}
+                <span
+                  className={`min-w-0 flex-1 truncate text-sm font-medium ${isIncluded ? "text-gray-700" : "text-gray-400 line-through"}`}
+                >
+                  {a.name}
+                </span>
+                {isIncluded && method !== "exact" && owedByAlias.has(a.id) && (
+                  <span
+                    className={
+                      method === "equal" ? "text-sm font-semibold text-gray-500" : "text-xs text-gray-400"
+                    }
+                  >
+                    {method === "equal"
+                      ? formatCents(owedByAlias.get(a.id)!, currency)
+                      : `owes ${formatCents(owedByAlias.get(a.id)!, currency)}`}
                   </span>
                 )}
               </button>
-            ) : (
-              <>
-                <Avatar id={a.id} name={a.name} size={28} />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-700">{a.name}</span>
-                {method === "adjustment" && owedByAlias.has(a.id) && (
-                  <span className="text-xs text-gray-400">
-                    owes {formatCents(owedByAlias.get(a.id)!, currency)}
-                  </span>
-                )}
+              {method !== "equal" && isIncluded && (
                 <div className="relative w-28 shrink-0">
                   <input
                     className={`input !py-1.5 text-right ${method === "percent" ? "!pr-7" : ""}`}
@@ -440,10 +448,10 @@ export function ExpenseModal({
                     <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-sm text-gray-400">%</span>
                   )}
                 </div>
-              </>
-            )}
-          </div>
-        ))}
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <div className="border-t border-gray-100 px-2 pt-3">{splitFooter()}</div>

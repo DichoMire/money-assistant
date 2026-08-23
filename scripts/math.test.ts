@@ -47,6 +47,9 @@ assert.deepEqual(s.map((x) => x.owedCents), [666, 333]);
 
 s = shares(computeShares("adjustment", 3000, [{ aliasId: A, value: 300 }, { aliasId: B, value: 0 }, { aliasId: C, value: 0 }], "USD"));
 assert.deepEqual(s.map((x) => x.owedCents), [1200, 900, 900]);
+// adjustment over a subset: excluded people get nothing, base splits among the rest
+s = shares(computeShares("adjustment", 3000, [{ aliasId: A, value: 300 }, { aliasId: B, value: 0 }], "USD"));
+assert.deepEqual(s.map((x) => x.owedCents), [1650, 1350]);
 bad = computeShares("adjustment", 1000, [{ aliasId: A, value: 2000 }, { aliasId: B, value: 0 }], "USD");
 assert.equal(bad.ok, false);
 
