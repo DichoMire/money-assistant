@@ -48,6 +48,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     process.env.AUTH_SECRET ??
     (process.env.NODE_ENV === "development" ? "dev-only-secret-do-not-use-in-prod" : undefined),
   callbacks: {
+    async signIn({ account, profile }) {
+      // Email is our identity and invite-matching key. Google accounts can
+      // carry unverified addresses (non-Gmail signups), which would allow
+      // impersonating someone else's email — require verification.
+      if (account?.provider === "google") {
+        return profile?.email_verified === true;
+      }
+      return true;
+    },
     async jwt({ token, user }) {
       if (user?.email) {
         const dbUser = await ensureUser(user.email, user.name, user.image);

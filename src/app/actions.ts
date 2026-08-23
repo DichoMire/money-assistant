@@ -379,6 +379,25 @@ export async function inviteByEmail(groupId: string, rawEmail: string): Promise<
         .set({ expiresAt: inviteExpiry() })
         .where(eq(groupInvites.id, existing[0].id));
     } else {
+      // Spam guard: bound how many outstanding email invites (and therefore
+      // outgoing emails to new addresses) a single group can have.
+      const active = await db
+        .select({ id: groupInvites.id })
+        .from(groupInvites)
+        .where(
+          and(
+            eq(groupInvites.groupId, groupId),
+            eq(groupInvites.kind, "email"),
+            eq(groupInvites.status, "active"),
+            gt(groupInvites.expiresAt, new Date())
+          )
+        );
+      if (active.length >= 20) {
+        return {
+          ok: false,
+          error: "This group has too many pending invites. Revoke some before sending more.",
+        };
+      }
       token = newInviteToken();
       await db.insert(groupInvites).values({
         groupId,
