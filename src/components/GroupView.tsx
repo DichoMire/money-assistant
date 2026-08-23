@@ -20,6 +20,7 @@ type ModalState =
   | null;
 
 export function GroupView({ data }: { data: GroupDto }) {
+  const isOwner = data.myRole === "owner";
   const [modal, setModal] = useState<ModalState>(null);
   // Optimistic mirror of the persisted toggle so switching feels instant —
   // both debt lists are already computed server-side.
@@ -27,6 +28,7 @@ export function GroupView({ data }: { data: GroupDto }) {
   useEffect(() => setSimplify(data.simplifyDebts), [data.simplifyDebts]);
 
   const toggleSimplify = (value: boolean) => {
+    if (!isOwner) return;
     setSimplify(value);
     void updateGroup(data.id, { simplifyDebts: value });
   };
@@ -41,6 +43,8 @@ export function GroupView({ data }: { data: GroupDto }) {
           <p className="text-sm text-gray-500">
             {data.currency} · {data.aliases.length}{" "}
             {data.aliases.length === 1 ? "person" : "people"}
+            {data.members.length > 1 && ` · ${data.members.length} accounts`}
+            {!isOwner && " · you're a member"}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -63,9 +67,11 @@ export function GroupView({ data }: { data: GroupDto }) {
           <button type="button" className="btn btn-secondary" onClick={() => setModal({ type: "members" })}>
             People
           </button>
-          <button type="button" className="btn btn-secondary" onClick={() => setModal({ type: "settings" })}>
-            Settings
-          </button>
+          {isOwner && (
+            <button type="button" className="btn btn-secondary" onClick={() => setModal({ type: "settings" })}>
+              Settings
+            </button>
+          )}
         </div>
       </div>
 
@@ -100,6 +106,7 @@ export function GroupView({ data }: { data: GroupDto }) {
           <BalancesPanel
             data={data}
             simplify={simplify}
+            canToggle={isOwner}
             onToggleSimplify={toggleSimplify}
             onSettle={(debt) => setModal({ type: "settle", prefill: debt })}
           />

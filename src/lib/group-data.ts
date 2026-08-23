@@ -1,23 +1,68 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
-import { getDb } from "@/db";
-import { aliases, expensePayers, expenseShares, expenses, fxRates, groups } from "@/db/schema";
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { getDb, type Db } from "@/db";
+import {
+  aliases,
+  expensePayers,
+  expenseShares,
+  expenses,
+  fxRates,
+  groupInvites,
+  groupMembers,
+  groups,
+  users,
+} from "@/db/schema";
+import { inviteIsUsable } from "./invites";
 import { allocateByWeights } from "./money";
 import { convertCents, findRateRow, ratesAreStale, todayString, type FxRow } from "./rates";
 import { netBalances, pairwiseDebts, simplifiedDebts, type BalanceTransaction } from "./simplify";
 import type { SplitMethod } from "./split";
-import type { ExpenseDto, GroupDto, GroupSummary } from "./types";
+import type {
+  CircleUserDto,
+  ExpenseDto,
+  GroupDto,
+  GroupRole,
+  GroupSummary,
+  JoinPreview,
+  PendingInviteDto,
+} from "./types";
+
+type GroupRow = typeof groups.$inferSelect;
+
+/** The caller's role in a group, or null when they have no access. */
+export async function getMembership(
+  db: Db,
+  groupId: string,
+  userId: string
+): Promise<{ group: GroupRow; role: GroupRole } | null> {
+  const groupRows = await db.select().from(groups).where(eq(groups.id, groupId));
+  const group = groupRows[0];
+  if (!group) return null;
+  if (group.userId === userId) return { group, role: "owner" };
+  const memberRows = await db
+    .select()
+    .from(groupMembers)
+    .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, userId)));
+  return memberRows[0] ? { group, role: "member" } : null;
+}
 
 export async function loadGroupSummaries(userId: string): Promise<GroupSummary[]> {
   const db = await getDb();
-  const groupRows = await db
-    .select()
-    .from(groups)
-    .where(eq(groups.userId, userId))
-    .orderBy(desc(groups.createdAt));
-  if (groupRows.length === 0) return [];
+  const [owned, joined] = await Promise.all([
+    db.select().from(groups).where(eq(groups.userId, userId)),
+    db
+      .select({ group: groups })
+      .from(groupMembers)
+      .innerJoin(groups, eq(groupMembers.groupId, groups.id))
+      .where(eq(groupMembers.userId, userId)),
+  ]);
+  const rows: { group: GroupRow; role: GroupRole }[] = [
+    ...owned.map((group) => ({ group, role: "owner" as const })),
+    ...joined.map((r) => ({ group: r.group, role: "member" as const })),
+  ].sort((a, b) => b.group.createdAt.getTime() - a.group.createdAt.getTime());
+  if (rows.length === 0) return [];
 
-  const ids = groupRows.map((g) => g.id);
-  const [aliasCounts, expenseCounts] = await Promise.all([
+  const ids = rows.map((r) => r.group.id);
+  const [aliasCounts, expenseCounts, memberCounts] = await Promise.all([
     db
       .select({ groupId: aliases.groupId, count: sql<number>`count(*)::int` })
       .from(aliases)
@@ -28,30 +73,35 @@ export async function loadGroupSummaries(userId: string): Promise<GroupSummary[]
       .from(expenses)
       .where(inArray(expenses.groupId, ids))
       .groupBy(expenses.groupId),
+    db
+      .select({ groupId: groupMembers.groupId, count: sql<number>`count(*)::int` })
+      .from(groupMembers)
+      .where(inArray(groupMembers.groupId, ids))
+      .groupBy(groupMembers.groupId),
   ]);
   const aliasMap = new Map(aliasCounts.map((r) => [r.groupId, r.count]));
   const expenseMap = new Map(expenseCounts.map((r) => [r.groupId, r.count]));
+  const memberMap = new Map(memberCounts.map((r) => [r.groupId, r.count]));
 
-  return groupRows.map((g) => ({
-    id: g.id,
-    name: g.name,
-    currency: g.currency,
-    simplifyDebts: g.simplifyDebts,
-    aliasCount: aliasMap.get(g.id) ?? 0,
-    expenseCount: expenseMap.get(g.id) ?? 0,
+  return rows.map(({ group, role }) => ({
+    id: group.id,
+    name: group.name,
+    currency: group.currency,
+    simplifyDebts: group.simplifyDebts,
+    aliasCount: aliasMap.get(group.id) ?? 0,
+    expenseCount: expenseMap.get(group.id) ?? 0,
+    memberCount: (memberMap.get(group.id) ?? 0) + 1, // + owner
+    role,
   }));
 }
 
 export async function loadGroupData(groupId: string, userId: string): Promise<GroupDto | null> {
   const db = await getDb();
-  const groupRows = await db
-    .select()
-    .from(groups)
-    .where(and(eq(groups.id, groupId), eq(groups.userId, userId)));
-  const group = groupRows[0];
-  if (!group) return null;
+  const membership = await getMembership(db, groupId, userId);
+  if (!membership) return null;
+  const { group } = membership;
 
-  const [aliasRows, expenseRows, fxRowsRaw] = await Promise.all([
+  const [aliasRows, expenseRows, fxRowsRaw, memberRows, ownerRows] = await Promise.all([
     db.select().from(aliases).where(eq(aliases.groupId, groupId)).orderBy(asc(aliases.createdAt)),
     db
       .select()
@@ -59,6 +109,12 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
       .where(eq(expenses.groupId, groupId))
       .orderBy(desc(expenses.date), desc(expenses.createdAt)),
     db.select().from(fxRates).orderBy(asc(fxRates.date)),
+    db
+      .select({ user: users })
+      .from(groupMembers)
+      .innerJoin(users, eq(groupMembers.userId, users.id))
+      .where(eq(groupMembers.groupId, groupId)),
+    db.select().from(users).where(eq(users.id, group.userId)),
   ]);
 
   const expenseIds = expenseRows.map((e) => e.id);
@@ -116,12 +172,26 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
   const latestDate = fxRows.at(-1)?.date ?? null;
   const needsConversion = expenseDtos.some((e) => e.currency !== group.currency);
 
+  const memberUsers = [
+    ...(ownerRows[0] ? [ownerRows[0]] : []),
+    ...memberRows.map((r) => r.user),
+  ];
+  const members = memberUsers.map((u) => ({
+    userId: u.id,
+    name: u.name ?? u.email,
+    email: u.email,
+    isOwner: u.id === group.userId,
+    aliasId: aliasRows.find((a) => a.userId === u.id)?.id ?? null,
+  }));
+
   return {
     id: group.id,
     name: group.name,
     currency: group.currency,
     simplifyDebts: group.simplifyDebts,
-    aliases: aliasRows.map((a) => ({ id: a.id, name: a.name })),
+    myRole: membership.role,
+    members,
+    aliases: aliasRows.map((a) => ({ id: a.id, name: a.name, userId: a.userId })),
     expenses: expenseDtos,
     netBalances: Object.fromEntries(net),
     pairwiseDebts: pairwiseDebts(transactions),
@@ -132,5 +202,98 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
       needsConversion,
       missingRate: expenseDtos.some((e) => e.convertedCents === null),
     },
+  };
+}
+
+/**
+ * Accounts the user already shares a group with ("circle"): owners and members
+ * of every group the user owns or has joined, excluding the user themself.
+ */
+export async function loadCircle(userId: string): Promise<CircleUserDto[]> {
+  const db = await getDb();
+  const [owned, joined] = await Promise.all([
+    db.select({ id: groups.id }).from(groups).where(eq(groups.userId, userId)),
+    db.select({ id: groupMembers.groupId }).from(groupMembers).where(eq(groupMembers.userId, userId)),
+  ]);
+  const groupIds = [...new Set([...owned, ...joined].map((r) => r.id))];
+  if (groupIds.length === 0) return [];
+
+  const [owners, members] = await Promise.all([
+    db
+      .select({ user: users })
+      .from(groups)
+      .innerJoin(users, eq(groups.userId, users.id))
+      .where(inArray(groups.id, groupIds)),
+    db
+      .select({ user: users })
+      .from(groupMembers)
+      .innerJoin(users, eq(groupMembers.userId, users.id))
+      .where(inArray(groupMembers.groupId, groupIds)),
+  ]);
+  const seen = new Map<string, CircleUserDto>();
+  for (const { user } of [...owners, ...members]) {
+    if (user.id === userId) continue;
+    seen.set(user.id, { userId: user.id, name: user.name ?? user.email, email: user.email });
+  }
+  return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Active email invites addressed to this account, shown on the dashboard. */
+export async function loadPendingInvites(email: string): Promise<PendingInviteDto[]> {
+  const db = await getDb();
+  const rows = await db
+    .select({ invite: groupInvites, group: groups, inviter: users })
+    .from(groupInvites)
+    .innerJoin(groups, eq(groupInvites.groupId, groups.id))
+    .innerJoin(users, eq(groupInvites.createdBy, users.id))
+    .where(
+      and(
+        eq(groupInvites.kind, "email"),
+        eq(groupInvites.email, email.toLowerCase()),
+        eq(groupInvites.status, "active"),
+        gt(groupInvites.expiresAt, new Date())
+      )
+    );
+  return rows.map((r) => ({
+    token: r.invite.token,
+    groupName: r.group.name,
+    inviterName: r.inviter.name ?? r.inviter.email,
+    expiresAt: r.invite.expiresAt.toISOString().slice(0, 10),
+  }));
+}
+
+/** Everything the /join/[token] page needs to render, permission-checked. */
+export async function loadInvitePreview(
+  token: string,
+  userId: string,
+  email: string | null | undefined
+): Promise<JoinPreview> {
+  const db = await getDb();
+  const inviteRows = await db.select().from(groupInvites).where(eq(groupInvites.token, token));
+  const invite = inviteRows[0];
+  if (!invite) return { state: "invalid" };
+
+  const membership = await getMembership(db, invite.groupId, userId);
+  if (membership) return { state: "member", groupId: invite.groupId };
+  if (!inviteIsUsable(invite)) return { state: "expired" };
+  if (invite.kind === "email" && invite.email !== (email ?? "").toLowerCase()) {
+    return { state: "wrong-email", email: invite.email ?? "" };
+  }
+
+  const [groupRows, inviterRows, aliasCount] = await Promise.all([
+    db.select().from(groups).where(eq(groups.id, invite.groupId)),
+    db.select().from(users).where(eq(users.id, invite.createdBy)),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(aliases)
+      .where(eq(aliases.groupId, invite.groupId)),
+  ]);
+  if (!groupRows[0]) return { state: "invalid" };
+  return {
+    state: "ok",
+    groupId: invite.groupId,
+    groupName: groupRows[0].name,
+    inviterName: inviterRows[0] ? (inviterRows[0].name ?? inviterRows[0].email) : "Someone",
+    peopleCount: aliasCount[0]?.count ?? 0,
   };
 }

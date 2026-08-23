@@ -8,11 +8,13 @@ import { Avatar } from "./Avatar";
 export function BalancesPanel({
   data,
   simplify,
+  canToggle,
   onToggleSimplify,
   onSettle,
 }: {
   data: GroupDto;
   simplify: boolean;
+  canToggle: boolean;
   onToggleSimplify: (value: boolean) => void;
   onSettle: (debt: Debt) => void;
 }) {
@@ -28,15 +30,19 @@ export function BalancesPanel({
       <div className="card px-4 py-4">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-bold text-gray-800">Balances</h2>
-          <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-gray-500">
+          <label
+            className={`flex items-center gap-2 text-xs font-semibold text-gray-500 ${canToggle ? "cursor-pointer" : "opacity-60"}`}
+            title={canToggle ? undefined : "Only the group owner can change this"}
+          >
             Simplify debts
             <span
               role="switch"
               aria-checked={simplify}
-              tabIndex={0}
-              onClick={() => onToggleSimplify(!simplify)}
+              aria-disabled={!canToggle}
+              tabIndex={canToggle ? 0 : -1}
+              onClick={() => canToggle && onToggleSimplify(!simplify)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
+                if (canToggle && (e.key === "Enter" || e.key === " ")) {
                   e.preventDefault();
                   onToggleSimplify(!simplify);
                 }

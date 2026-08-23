@@ -1,9 +1,19 @@
 import { redirect } from "next/navigation";
 import { auth, devLoginEnabled, hasGoogleAuth, signIn } from "@/auth";
 
-export default async function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ callbackUrl?: string }>;
+}) {
+  const { callbackUrl } = await searchParams;
+  // Only same-site relative redirect targets (e.g. /join/<token>) are honored.
+  const redirectTo =
+    callbackUrl && callbackUrl.startsWith("/") && !callbackUrl.startsWith("//")
+      ? callbackUrl
+      : "/";
   const session = await auth();
-  if (session?.user) redirect("/");
+  if (session?.user) redirect(redirectTo);
 
   return (
     <main className="flex min-h-screen items-center justify-center px-4">
@@ -23,7 +33,7 @@ export default async function LoginPage() {
           <form
             action={async () => {
               "use server";
-              await signIn("google", { redirectTo: "/" });
+              await signIn("google", { redirectTo });
             }}
           >
             <button type="submit" className="btn btn-secondary w-full !py-2.5">
@@ -45,7 +55,7 @@ export default async function LoginPage() {
               "use server";
               await signIn("dev-login", {
                 email: formData.get("email"),
-                redirectTo: "/",
+                redirectTo,
               });
             }}
           >

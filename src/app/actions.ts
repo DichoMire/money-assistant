@@ -1,32 +1,55 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { getDb, type Db } from "@/db";
-import { aliases, expensePayers, expenseShares, expenses, groups } from "@/db/schema";
+import {
+  aliases,
+  expensePayers,
+  expenseShares,
+  expenses,
+  groupInvites,
+  groupMembers,
+  groups,
+  users,
+} from "@/db/schema";
 import { isSupportedCurrency } from "@/lib/currencies";
+import { sendInviteEmail } from "@/lib/email";
+import { getMembership, loadCircle } from "@/lib/group-data";
+import { inviteExpiry, inviteIsUsable, joinUrl, newInviteToken } from "@/lib/invites";
 import { refreshRates } from "@/lib/rates-fetch";
 import { computeShares, validatePayers, SPLIT_METHODS } from "@/lib/split";
-import type { ActionResult, ExpenseInput, SettlementInput } from "@/lib/types";
+import type {
+  ActionResult,
+  CircleUserDto,
+  ExpenseInput,
+  GroupRole,
+  InviteEmailResult,
+  InvitesDto,
+  SettlementInput,
+} from "@/lib/types";
 
-async function requireUserId(): Promise<string> {
+type SessionUser = { id: string; email: string; name: string };
+
+async function requireUser(): Promise<SessionUser> {
   const session = await auth();
-  const id = session?.user?.id;
-  if (!id) throw new Error("Not signed in.");
-  return id;
+  const user = session?.user;
+  if (!user?.id || !user.email) throw new Error("Not signed in.");
+  return { id: user.id, email: user.email, name: user.name ?? user.email };
 }
 
-async function requireOwnedGroup(db: Db, groupId: string, userId: string) {
-  const rows = await db
-    .select()
-    .from(groups)
-    .where(and(eq(groups.id, groupId), eq(groups.userId, userId)));
-  if (!rows[0]) throw new Error("Group not found.");
-  return rows[0];
+/** Membership gate: "member" allows both roles, "owner" only the owner. */
+async function requireRole(db: Db, groupId: string, userId: string, minRole: GroupRole) {
+  const membership = await getMembership(db, groupId, userId);
+  if (!membership) throw new Error("Group not found.");
+  if (minRole === "owner" && membership.role !== "owner") {
+    throw new Error("Only the group owner can do that.");
+  }
+  return membership;
 }
 
-function fail(error: unknown): ActionResult {
+function fail(error: unknown): { ok: false; error: string } {
   return { ok: false, error: error instanceof Error ? error.message : "Something went wrong." };
 }
 
@@ -36,20 +59,25 @@ function revalidateGroup(groupId: string) {
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const INVITE_ANONYMOUS_MESSAGE =
+  "If an account with this email exists, they will receive an invite.";
 
 // ---------- Groups ----------
 
 export async function createGroup(name: string, currency: string): Promise<ActionResult> {
   try {
-    const userId = await requireUserId();
+    const user = await requireUser();
     const trimmed = name.trim();
     if (!trimmed) return { ok: false, error: "Group name is required." };
     if (!isSupportedCurrency(currency)) return { ok: false, error: "Unsupported currency." };
     const db = await getDb();
     const rows = await db
       .insert(groups)
-      .values({ userId, name: trimmed, currency })
+      .values({ userId: user.id, name: trimmed, currency })
       .returning({ id: groups.id });
+    // The owner participates too — give them a linked alias from the start.
+    await createLinkedAlias(db, rows[0].id, user);
     revalidatePath("/");
     return { ok: true, id: rows[0].id };
   } catch (e) {
@@ -62,9 +90,9 @@ export async function updateGroup(
   patch: { name?: string; currency?: string; simplifyDebts?: boolean }
 ): Promise<ActionResult> {
   try {
-    const userId = await requireUserId();
+    const user = await requireUser();
     const db = await getDb();
-    await requireOwnedGroup(db, groupId, userId);
+    await requireRole(db, groupId, user.id, "owner");
     const set: Partial<typeof groups.$inferInsert> = {};
     if (patch.name !== undefined) {
       const trimmed = patch.name.trim();
@@ -88,9 +116,9 @@ export async function updateGroup(
 
 export async function deleteGroup(groupId: string): Promise<ActionResult> {
   try {
-    const userId = await requireUserId();
+    const user = await requireUser();
     const db = await getDb();
-    await requireOwnedGroup(db, groupId, userId);
+    await requireRole(db, groupId, user.id, "owner");
     // FK order: aliases are referenced by payers/shares with RESTRICT, so
     // remove transactions first, then aliases, then the group.
     const groupExpenses = await db
@@ -113,13 +141,30 @@ export async function deleteGroup(groupId: string): Promise<ActionResult> {
 
 // ---------- Aliases (participants) ----------
 
+/** Reuse the user's linked alias in the group or create one with a free name. */
+async function createLinkedAlias(
+  db: Db,
+  groupId: string,
+  user: { id: string; email: string; name: string }
+) {
+  const existing = await db.select().from(aliases).where(eq(aliases.groupId, groupId));
+  const already = existing.find((a) => a.userId === user.id);
+  if (already) return already;
+  const base = (user.name || user.email.split("@")[0]).trim() || "Member";
+  const names = new Set(existing.map((a) => a.name.toLowerCase()));
+  let name = base;
+  for (let n = 2; names.has(name.toLowerCase()); n += 1) name = `${base} ${n}`;
+  const rows = await db.insert(aliases).values({ groupId, name, userId: user.id }).returning();
+  return rows[0];
+}
+
 export async function addAlias(groupId: string, name: string): Promise<ActionResult> {
   try {
-    const userId = await requireUserId();
+    const user = await requireUser();
     const trimmed = name.trim();
     if (!trimmed) return { ok: false, error: "Name is required." };
     const db = await getDb();
-    await requireOwnedGroup(db, groupId, userId);
+    await requireRole(db, groupId, user.id, "owner");
     const existing = await db.select().from(aliases).where(eq(aliases.groupId, groupId));
     if (existing.some((a) => a.name.toLowerCase() === trimmed.toLowerCase())) {
       return { ok: false, error: `"${trimmed}" is already in this group.` };
@@ -135,23 +180,21 @@ export async function addAlias(groupId: string, name: string): Promise<ActionRes
   }
 }
 
-async function requireOwnedAlias(db: Db, aliasId: string, userId: string) {
-  const rows = await db
-    .select({ alias: aliases })
-    .from(aliases)
-    .innerJoin(groups, eq(aliases.groupId, groups.id))
-    .where(and(eq(aliases.id, aliasId), eq(groups.userId, userId)));
-  if (!rows[0]) throw new Error("Person not found.");
-  return rows[0].alias;
+async function requireAliasInOwnedGroup(db: Db, aliasId: string, userId: string) {
+  const rows = await db.select().from(aliases).where(eq(aliases.id, aliasId));
+  const alias = rows[0];
+  if (!alias) throw new Error("Person not found.");
+  await requireRole(db, alias.groupId, userId, "owner");
+  return alias;
 }
 
 export async function renameAlias(aliasId: string, name: string): Promise<ActionResult> {
   try {
-    const userId = await requireUserId();
+    const user = await requireUser();
     const trimmed = name.trim();
     if (!trimmed) return { ok: false, error: "Name is required." };
     const db = await getDb();
-    const alias = await requireOwnedAlias(db, aliasId, userId);
+    const alias = await requireAliasInOwnedGroup(db, aliasId, user.id);
     await db.update(aliases).set({ name: trimmed }).where(eq(aliases.id, aliasId));
     revalidateGroup(alias.groupId);
     return { ok: true };
@@ -162,9 +205,12 @@ export async function renameAlias(aliasId: string, name: string): Promise<Action
 
 export async function deleteAlias(aliasId: string): Promise<ActionResult> {
   try {
-    const userId = await requireUserId();
+    const user = await requireUser();
     const db = await getDb();
-    const alias = await requireOwnedAlias(db, aliasId, userId);
+    const alias = await requireAliasInOwnedGroup(db, aliasId, user.id);
+    if (alias.userId) {
+      return { ok: false, error: "This person is a group member. Remove the member instead." };
+    }
     const [paid, owed] = await Promise.all([
       db.select({ id: expensePayers.expenseId }).from(expensePayers).where(eq(expensePayers.aliasId, aliasId)).limit(1),
       db.select({ id: expenseShares.expenseId }).from(expenseShares).where(eq(expenseShares.aliasId, aliasId)).limit(1),
@@ -183,13 +229,307 @@ export async function deleteAlias(aliasId: string): Promise<ActionResult> {
   }
 }
 
+// ---------- Members, circle, invites ----------
+
+/** Detach the user's alias (back to virtual) and drop their membership. */
+async function detachMember(db: Db, groupId: string, targetUserId: string) {
+  await db
+    .update(aliases)
+    .set({ userId: null })
+    .where(and(eq(aliases.groupId, groupId), eq(aliases.userId, targetUserId)));
+  await db
+    .delete(groupMembers)
+    .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, targetUserId)));
+}
+
+export async function removeMember(groupId: string, targetUserId: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const db = await getDb();
+    const { group } = await requireRole(db, groupId, user.id, "owner");
+    if (targetUserId === group.userId) {
+      return { ok: false, error: "The owner cannot be removed." };
+    }
+    await detachMember(db, groupId, targetUserId);
+    revalidateGroup(groupId);
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function leaveGroup(groupId: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const db = await getDb();
+    const { role } = await requireRole(db, groupId, user.id, "member");
+    if (role === "owner") {
+      return { ok: false, error: "The owner cannot leave their own group. Delete it instead." };
+    }
+    await detachMember(db, groupId, user.id);
+    revalidatePath("/");
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Circle accounts that could be added to this group (not yet in it). */
+export async function getCircleForGroup(groupId: string): Promise<CircleUserDto[]> {
+  const user = await requireUser();
+  const db = await getDb();
+  const { group } = await requireRole(db, groupId, user.id, "owner");
+  const [circle, memberRows] = await Promise.all([
+    loadCircle(user.id),
+    db.select({ userId: groupMembers.userId }).from(groupMembers).where(eq(groupMembers.groupId, groupId)),
+  ]);
+  const inGroup = new Set([group.userId, ...memberRows.map((r) => r.userId)]);
+  return circle.filter((c) => !inGroup.has(c.userId));
+}
+
+/** Instantly add someone from the owner's circle as a member. */
+export async function addCircleMember(groupId: string, targetUserId: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const db = await getDb();
+    await requireRole(db, groupId, user.id, "owner");
+    const circle = await loadCircle(user.id);
+    if (!circle.some((c) => c.userId === targetUserId)) {
+      return { ok: false, error: "You can only add people you already share a group with." };
+    }
+    const targetRows = await db.select().from(users).where(eq(users.id, targetUserId));
+    const target = targetRows[0];
+    if (!target) return { ok: false, error: "Account not found." };
+    await joinGroup(db, groupId, {
+      id: target.id,
+      email: target.email,
+      name: target.name ?? target.email,
+    });
+    revalidateGroup(groupId);
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+async function joinGroup(db: Db, groupId: string, user: SessionUser) {
+  await db
+    .insert(groupMembers)
+    .values({ groupId, userId: user.id })
+    .onConflictDoNothing();
+  await createLinkedAlias(db, groupId, user);
+}
+
+/**
+ * Invite by email. Deliberately anonymous: the invite row is created and the
+ * email is (best-effort) sent whether or not an account exists, and the
+ * response message is always the same — nothing here reveals whether the
+ * address belongs to an account. The one exception: someone in the owner's
+ * circle is added directly (their existence is already known to the owner).
+ */
+export async function inviteByEmail(groupId: string, rawEmail: string): Promise<InviteEmailResult> {
+  try {
+    const user = await requireUser();
+    const email = rawEmail.trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) return { ok: false, error: "Enter a valid email address." };
+    const db = await getDb();
+    const { group } = await requireRole(db, groupId, user.id, "owner");
+
+    if (email === user.email.toLowerCase()) {
+      return { ok: false, error: "That's your own email address." };
+    }
+
+    // Already a member? The owner can see the member list, so a real answer
+    // here leaks nothing.
+    const memberEmails = await db
+      .select({ email: users.email })
+      .from(groupMembers)
+      .innerJoin(users, eq(groupMembers.userId, users.id))
+      .where(eq(groupMembers.groupId, groupId));
+    if (memberEmails.some((m) => m.email.toLowerCase() === email)) {
+      return { ok: false, error: "This person is already a member of the group." };
+    }
+
+    // Circle accounts join immediately.
+    const circle = await loadCircle(user.id);
+    const inCircle = circle.find((c) => c.email.toLowerCase() === email);
+    if (inCircle) {
+      await joinGroup(db, groupId, { id: inCircle.userId, email: inCircle.email, name: inCircle.name });
+      revalidateGroup(groupId);
+      return { ok: true, joined: true, message: `${inCircle.name} is in your circle and was added directly.` };
+    }
+
+    // Reuse a still-active invite for this address, otherwise create one.
+    const existing = await db
+      .select()
+      .from(groupInvites)
+      .where(
+        and(
+          eq(groupInvites.groupId, groupId),
+          eq(groupInvites.kind, "email"),
+          eq(groupInvites.email, email),
+          eq(groupInvites.status, "active"),
+          gt(groupInvites.expiresAt, new Date())
+        )
+      );
+    let token = existing[0]?.token;
+    if (token) {
+      await db
+        .update(groupInvites)
+        .set({ expiresAt: inviteExpiry() })
+        .where(eq(groupInvites.id, existing[0].id));
+    } else {
+      token = newInviteToken();
+      await db.insert(groupInvites).values({
+        groupId,
+        kind: "email",
+        token,
+        email,
+        createdBy: user.id,
+        expiresAt: inviteExpiry(),
+      });
+    }
+    await sendInviteEmail({
+      to: email,
+      groupName: group.name,
+      inviterName: user.name,
+      url: joinUrl(token),
+    });
+    revalidateGroup(groupId);
+    return { ok: true, joined: false, message: INVITE_ANONYMOUS_MESSAGE };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function getInvites(groupId: string): Promise<InvitesDto> {
+  const user = await requireUser();
+  const db = await getDb();
+  await requireRole(db, groupId, user.id, "owner");
+  const rows = await db
+    .select()
+    .from(groupInvites)
+    .where(
+      and(
+        eq(groupInvites.groupId, groupId),
+        eq(groupInvites.status, "active"),
+        gt(groupInvites.expiresAt, new Date())
+      )
+    );
+  const link = rows.find((r) => r.kind === "link");
+  return {
+    link: link
+      ? { id: link.id, url: joinUrl(link.token), expiresAt: link.expiresAt.toISOString().slice(0, 10) }
+      : null,
+    emailInvites: rows
+      .filter((r) => r.kind === "email")
+      .map((r) => ({ id: r.id, email: r.email ?? "", expiresAt: r.expiresAt.toISOString().slice(0, 10) })),
+  };
+}
+
+/** Return the existing active invite link, or create a fresh 7-day one. */
+export async function createInviteLink(groupId: string): Promise<InvitesDto["link"]> {
+  const user = await requireUser();
+  const db = await getDb();
+  await requireRole(db, groupId, user.id, "owner");
+  const existing = await db
+    .select()
+    .from(groupInvites)
+    .where(
+      and(
+        eq(groupInvites.groupId, groupId),
+        eq(groupInvites.kind, "link"),
+        eq(groupInvites.status, "active"),
+        gt(groupInvites.expiresAt, new Date())
+      )
+    );
+  if (existing[0]) {
+    return {
+      id: existing[0].id,
+      url: joinUrl(existing[0].token),
+      expiresAt: existing[0].expiresAt.toISOString().slice(0, 10),
+    };
+  }
+  const token = newInviteToken();
+  const rows = await db
+    .insert(groupInvites)
+    .values({ groupId, kind: "link", token, createdBy: user.id, expiresAt: inviteExpiry() })
+    .returning();
+  return { id: rows[0].id, url: joinUrl(token), expiresAt: rows[0].expiresAt.toISOString().slice(0, 10) };
+}
+
+export async function revokeInvite(inviteId: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const db = await getDb();
+    const rows = await db.select().from(groupInvites).where(eq(groupInvites.id, inviteId));
+    const invite = rows[0];
+    if (!invite) return { ok: false, error: "Invite not found." };
+    await requireRole(db, invite.groupId, user.id, "owner");
+    await db.update(groupInvites).set({ status: "revoked" }).where(eq(groupInvites.id, inviteId));
+    revalidateGroup(invite.groupId);
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function acceptInvite(token: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const db = await getDb();
+    const rows = await db.select().from(groupInvites).where(eq(groupInvites.token, token));
+    const invite = rows[0];
+    if (!invite) return { ok: false, error: "This invite link is not valid." };
+
+    const membership = await getMembership(db, invite.groupId, user.id);
+    if (membership) {
+      if (invite.kind === "email" && invite.email === user.email.toLowerCase() && invite.status === "active") {
+        await db.update(groupInvites).set({ status: "accepted" }).where(eq(groupInvites.id, invite.id));
+      }
+      return { ok: true, id: invite.groupId };
+    }
+    if (!inviteIsUsable(invite)) {
+      return { ok: false, error: "This invite has expired. Ask for a new one." };
+    }
+    if (invite.kind === "email" && invite.email !== user.email.toLowerCase()) {
+      return { ok: false, error: "This invite was sent to a different email address." };
+    }
+
+    await joinGroup(db, invite.groupId, user);
+    if (invite.kind === "email") {
+      await db.update(groupInvites).set({ status: "accepted" }).where(eq(groupInvites.id, invite.id));
+    }
+    revalidateGroup(invite.groupId);
+    return { ok: true, id: invite.groupId };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function declineInvite(token: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const db = await getDb();
+    const rows = await db.select().from(groupInvites).where(eq(groupInvites.token, token));
+    const invite = rows[0];
+    if (invite && invite.kind === "email" && invite.email === user.email.toLowerCase()) {
+      await db.update(groupInvites).set({ status: "declined" }).where(eq(groupInvites.id, invite.id));
+      revalidatePath("/");
+    }
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
 // ---------- Expenses ----------
 
 export async function saveExpense(input: ExpenseInput): Promise<ActionResult> {
   try {
-    const userId = await requireUserId();
+    const user = await requireUser();
     const db = await getDb();
-    await requireOwnedGroup(db, input.groupId, userId);
+    await requireRole(db, input.groupId, user.id, "member");
 
     const description = input.description.trim();
     if (!description) return { ok: false, error: "Description is required." };
@@ -276,9 +616,9 @@ export async function saveExpense(input: ExpenseInput): Promise<ActionResult> {
 
 export async function saveSettlement(input: SettlementInput): Promise<ActionResult> {
   try {
-    const userId = await requireUserId();
+    const user = await requireUser();
     const db = await getDb();
-    await requireOwnedGroup(db, input.groupId, userId);
+    await requireRole(db, input.groupId, user.id, "member");
 
     if (input.fromAliasId === input.toAliasId) {
       return { ok: false, error: "Payer and recipient must be different people." };
@@ -345,18 +685,16 @@ export async function saveSettlement(input: SettlementInput): Promise<ActionResu
 
 export async function deleteExpense(expenseId: string): Promise<ActionResult> {
   try {
-    const userId = await requireUserId();
+    const user = await requireUser();
     const db = await getDb();
-    const rows = await db
-      .select({ expense: expenses })
-      .from(expenses)
-      .innerJoin(groups, eq(expenses.groupId, groups.id))
-      .where(and(eq(expenses.id, expenseId), eq(groups.userId, userId)));
-    if (!rows[0]) return { ok: false, error: "Expense not found." };
+    const rows = await db.select().from(expenses).where(eq(expenses.id, expenseId));
+    const expense = rows[0];
+    if (!expense) return { ok: false, error: "Expense not found." };
+    await requireRole(db, expense.groupId, user.id, "member");
     await db.delete(expensePayers).where(eq(expensePayers.expenseId, expenseId));
     await db.delete(expenseShares).where(eq(expenseShares.expenseId, expenseId));
     await db.delete(expenses).where(eq(expenses.id, expenseId));
-    revalidateGroup(rows[0].expense.groupId);
+    revalidateGroup(expense.groupId);
     return { ok: true };
   } catch (e) {
     return fail(e);
@@ -367,7 +705,7 @@ export async function deleteExpense(expenseId: string): Promise<ActionResult> {
 
 export async function updateRatesNow(): Promise<ActionResult> {
   try {
-    await requireUserId();
+    await requireUser();
     await refreshRates();
     revalidatePath("/", "layout");
     return { ok: true };

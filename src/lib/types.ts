@@ -1,7 +1,40 @@
 import type { SplitMethod, SplitEntry } from "./split";
 import type { Debt } from "./simplify";
 
-export type AliasDto = { id: string; name: string };
+/** userId links the alias to a real account; null = virtual member. */
+export type AliasDto = { id: string; name: string; userId: string | null };
+
+export type GroupRole = "owner" | "member";
+
+export type GroupMemberDto = {
+  userId: string;
+  name: string;
+  email: string;
+  isOwner: boolean;
+  /** The member's participant alias in this group (null if none linked). */
+  aliasId: string | null;
+};
+
+export type CircleUserDto = { userId: string; name: string; email: string };
+
+export type InvitesDto = {
+  link: { id: string; url: string; expiresAt: string } | null;
+  emailInvites: { id: string; email: string; expiresAt: string }[];
+};
+
+export type PendingInviteDto = {
+  token: string;
+  groupName: string;
+  inviterName: string;
+  expiresAt: string;
+};
+
+export type JoinPreview =
+  | { state: "invalid" }
+  | { state: "expired" }
+  | { state: "wrong-email"; email: string }
+  | { state: "member"; groupId: string }
+  | { state: "ok"; groupId: string; groupName: string; inviterName: string; peopleCount: number };
 
 export type PayerDto = { aliasId: string; paidCents: number };
 
@@ -39,6 +72,8 @@ export type GroupSummary = {
   simplifyDebts: boolean;
   aliasCount: number;
   expenseCount: number;
+  memberCount: number;
+  role: GroupRole;
 };
 
 export type GroupDto = {
@@ -46,6 +81,8 @@ export type GroupDto = {
   name: string;
   currency: string;
   simplifyDebts: boolean;
+  myRole: GroupRole;
+  members: GroupMemberDto[];
   aliases: AliasDto[];
   expenses: ExpenseDto[];
   /** aliasId -> net cents in group currency (positive = is owed money). */
@@ -78,3 +115,7 @@ export type SettlementInput = {
 };
 
 export type ActionResult = { ok: true; id?: string } | { ok: false; error: string };
+
+export type InviteEmailResult =
+  | { ok: false; error: string }
+  | { ok: true; joined: boolean; message: string };

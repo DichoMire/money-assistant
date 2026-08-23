@@ -30,13 +30,52 @@ export const groups = pgTable("groups", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// A participant in a group. userId links the alias to a real account ("real
+// member"); null means a virtual member tracked on their behalf. Removing a
+// member detaches the link instead of deleting the alias, preserving history.
 export const aliases = pgTable("aliases", {
   id: uuid("id").primaryKey().defaultRandom(),
   groupId: uuid("group_id")
     .notNull()
     .references(() => groups.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Non-owner accounts that joined a group. The owner is groups.userId and has
+// no row here, which keeps pre-multi-user groups valid without a backfill.
+export const groupMembers = pgTable(
+  "group_members",
+  {
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.userId] })]
+);
+
+// kind "link": shareable multi-use URL. kind "email": targeted single-use
+// invite; email is stored lowercased and must match the accepting account.
+// status: active | expired | revoked | accepted | declined.
+export const groupInvites = pgTable("group_invites", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  groupId: uuid("group_id")
+    .notNull()
+    .references(() => groups.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),
+  token: text("token").notNull().unique(),
+  email: text("email"),
+  createdBy: uuid("created_by")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
 });
 
 // kind: "expense" | "settlement". A settlement ("A paid B") is stored as a

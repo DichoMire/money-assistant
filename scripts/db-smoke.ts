@@ -78,9 +78,54 @@ async function main() {
   assert.equal(data.rates.missingRate, false);
   assert.equal(data.rates.latestDate, "2026-08-20");
 
-  // Ownership check: another user must not see this group.
+  // Access control: an unrelated user must not see this group.
   const [other] = await db.insert(users).values({ email: "other@test.local" }).returning();
   assert.equal(await loadGroupData(group.id, other.id), null);
+
+  // Membership: once added as a member, they can read it with role "member".
+  const { groupInvites, groupMembers } = await import("../src/db/schema");
+  await db.insert(groupMembers).values({ groupId: group.id, userId: other.id });
+  const asMember = await loadGroupData(group.id, other.id);
+  assert.ok(asMember);
+  assert.equal(asMember.myRole, "member");
+  assert.equal((await loadGroupData(group.id, user.id))!.myRole, "owner");
+  assert.equal(asMember.members.length, 2);
+  const memberSummaries = await loadGroupSummaries(other.id);
+  assert.equal(memberSummaries.length, 1);
+  assert.equal(memberSummaries[0].role, "member");
+  assert.equal(memberSummaries[0].memberCount, 2);
+
+  // Email invites: pending list + join preview states.
+  const { loadInvitePreview, loadPendingInvites } = await import("../src/lib/group-data");
+  const [third] = await db.insert(users).values({ email: "third@test.local", name: "Third" }).returning();
+  const expiresAt = new Date(Date.now() + 7 * 86_400_000);
+  await db.insert(groupInvites).values({
+    groupId: group.id,
+    kind: "email",
+    token: "tok-email-1",
+    email: "third@test.local",
+    createdBy: user.id,
+    expiresAt,
+  });
+  const pending = await loadPendingInvites("third@test.local");
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].groupName, "Trip");
+
+  const okPreview = await loadInvitePreview("tok-email-1", third.id, "third@test.local");
+  assert.equal(okPreview.state, "ok");
+  const [fourth] = await db.insert(users).values({ email: "fourth@test.local" }).returning();
+  assert.equal((await loadInvitePreview("tok-email-1", fourth.id, "fourth@test.local")).state, "wrong-email");
+  assert.equal((await loadInvitePreview("tok-email-1", user.id, user.email)).state, "member");
+  assert.equal((await loadInvitePreview("no-such-token", third.id, "third@test.local")).state, "invalid");
+
+  await db.insert(groupInvites).values({
+    groupId: group.id,
+    kind: "link",
+    token: "tok-link-old",
+    createdBy: user.id,
+    expiresAt: new Date(Date.now() - 86_400_000),
+  });
+  assert.equal((await loadInvitePreview("tok-link-old", third.id, "third@test.local")).state, "expired");
 }
 
 main()

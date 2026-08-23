@@ -3,17 +3,23 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { AppHeader } from "@/components/AppHeader";
 import { NewGroupForm } from "@/components/NewGroupForm";
-import { loadGroupSummaries } from "@/lib/group-data";
+import { PendingInvites } from "@/components/PendingInvites";
+import { loadGroupSummaries, loadPendingInvites } from "@/lib/group-data";
 
 export default async function DashboardPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
-  const groups = await loadGroupSummaries(session.user.id);
+  const [groups, invites] = await Promise.all([
+    loadGroupSummaries(session.user.id),
+    session.user.email ? loadPendingInvites(session.user.email) : Promise.resolve([]),
+  ]);
 
   return (
     <div className="min-h-screen">
       <AppHeader user={session.user} />
       <main className="mx-auto max-w-5xl px-4 py-8">
+        <PendingInvites invites={invites} />
+
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-800">Your groups</h1>
           <NewGroupForm />
@@ -44,14 +50,26 @@ export default async function DashboardPage() {
                   {g.aliasCount} {g.aliasCount === 1 ? "person" : "people"} · {g.expenseCount}{" "}
                   {g.expenseCount === 1 ? "expense" : "expenses"}
                 </p>
-                {g.simplifyDebts && (
-                  <span
-                    className="mt-2 inline-block rounded-full px-2 py-0.5 text-xs font-semibold text-white"
-                    style={{ background: "var(--brand)" }}
-                  >
-                    Simplified debts
-                  </span>
-                )}
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {g.role === "member" && (
+                    <span className="inline-block rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-700">
+                      Member
+                    </span>
+                  )}
+                  {g.memberCount > 1 && (
+                    <span className="inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">
+                      {g.memberCount} accounts
+                    </span>
+                  )}
+                  {g.simplifyDebts && (
+                    <span
+                      className="inline-block rounded-full px-2 py-0.5 text-xs font-semibold text-white"
+                      style={{ background: "var(--brand)" }}
+                    >
+                      Simplified debts
+                    </span>
+                  )}
+                </div>
               </Link>
             ))}
           </div>
