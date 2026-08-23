@@ -189,6 +189,7 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
     currency: group.currency,
     simplifyDebts: group.simplifyDebts,
     myRole: membership.role,
+    myUserId: userId,
     members,
     aliases: aliasRows.map((a) => ({ id: a.id, name: a.name, userId: a.userId })),
     expenses: expenseDtos,

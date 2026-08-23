@@ -71,6 +71,7 @@ export type GroupDto = {
   currency: string;
   simplifyDebts: boolean;
   myRole: GroupRole;
+  myUserId: string;
   members: GroupMemberDto[];
   aliases: AliasDto[];
   expenses: ExpenseDto[];

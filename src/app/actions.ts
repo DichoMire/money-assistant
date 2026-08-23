@@ -190,7 +190,15 @@ export async function renameAlias(aliasId: string, name: string): Promise<Action
     const trimmed = name.trim();
     if (!trimmed) return { ok: false, error: "Name is required." };
     const db = await getDb();
-    const alias = await requireAliasInOwnedGroup(db, aliasId, user.id);
+    const rows = await db.select().from(aliases).where(eq(aliases.id, aliasId));
+    const alias = rows[0];
+    if (!alias) return { ok: false, error: "Person not found." };
+    // The owner renames anyone in their group; a member renames only the
+    // participant linked to their own account.
+    const { role } = await requireRole(db, alias.groupId, user.id, "member");
+    if (role !== "owner" && alias.userId !== user.id) {
+      return { ok: false, error: "You can only rename yourself." };
+    }
     await db.update(aliases).set({ name: trimmed }).where(eq(aliases.id, aliasId));
     revalidateGroup(alias.groupId);
     return { ok: true };
