@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, type Db } from "@/db";
 import {
   aliases,
@@ -23,7 +23,6 @@ import type {
   GroupRole,
   GroupSummary,
   JoinPreview,
-  PendingInviteDto,
 } from "./types";
 
 type GroupRow = typeof groups.$inferSelect;
@@ -238,36 +237,8 @@ export async function loadCircle(userId: string): Promise<CircleUserDto[]> {
   return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Active email invites addressed to this account, shown on the dashboard. */
-export async function loadPendingInvites(email: string): Promise<PendingInviteDto[]> {
-  const db = await getDb();
-  const rows = await db
-    .select({ invite: groupInvites, group: groups, inviter: users })
-    .from(groupInvites)
-    .innerJoin(groups, eq(groupInvites.groupId, groups.id))
-    .innerJoin(users, eq(groupInvites.createdBy, users.id))
-    .where(
-      and(
-        eq(groupInvites.kind, "email"),
-        eq(groupInvites.email, email.toLowerCase()),
-        eq(groupInvites.status, "active"),
-        gt(groupInvites.expiresAt, new Date())
-      )
-    );
-  return rows.map((r) => ({
-    token: r.invite.token,
-    groupName: r.group.name,
-    inviterName: r.inviter.name ?? r.inviter.email,
-    expiresAt: r.invite.expiresAt.toISOString().slice(0, 10),
-  }));
-}
-
 /** Everything the /join/[token] page needs to render, permission-checked. */
-export async function loadInvitePreview(
-  token: string,
-  userId: string,
-  email: string | null | undefined
-): Promise<JoinPreview> {
+export async function loadInvitePreview(token: string, userId: string): Promise<JoinPreview> {
   const db = await getDb();
   const inviteRows = await db.select().from(groupInvites).where(eq(groupInvites.token, token));
   const invite = inviteRows[0];
@@ -276,9 +247,6 @@ export async function loadInvitePreview(
   const membership = await getMembership(db, invite.groupId, userId);
   if (membership) return { state: "member", groupId: invite.groupId };
   if (!inviteIsUsable(invite)) return { state: "expired" };
-  if (invite.kind === "email" && invite.email !== (email ?? "").toLowerCase()) {
-    return { state: "wrong-email", email: invite.email ?? "" };
-  }
 
   const [groupRows, inviterRows, aliasCount] = await Promise.all([
     db.select().from(groups).where(eq(groups.id, invite.groupId)),

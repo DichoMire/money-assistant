@@ -3,23 +3,17 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { AppHeader } from "@/components/AppHeader";
 import { NewGroupForm } from "@/components/NewGroupForm";
-import { PendingInvites } from "@/components/PendingInvites";
-import { loadGroupSummaries, loadPendingInvites } from "@/lib/group-data";
+import { loadGroupSummaries } from "@/lib/group-data";
 
 export default async function DashboardPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
-  const [groups, invites] = await Promise.all([
-    loadGroupSummaries(session.user.id),
-    session.user.email ? loadPendingInvites(session.user.email) : Promise.resolve([]),
-  ]);
+  const groups = await loadGroupSummaries(session.user.id);
 
   return (
     <div className="min-h-screen">
       <AppHeader user={session.user} />
       <main className="mx-auto max-w-5xl px-4 py-8">
-        <PendingInvites invites={invites} />
-
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-800">Your groups</h1>
           <NewGroupForm />

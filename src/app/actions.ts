@@ -15,7 +15,6 @@ import {
   users,
 } from "@/db/schema";
 import { isSupportedCurrency } from "@/lib/currencies";
-import { sendInviteEmail } from "@/lib/email";
 import { getMembership, loadCircle } from "@/lib/group-data";
 import { inviteExpiry, inviteIsUsable, joinUrl, newInviteToken } from "@/lib/invites";
 import { refreshRates } from "@/lib/rates-fetch";
@@ -25,8 +24,7 @@ import type {
   CircleUserDto,
   ExpenseInput,
   GroupRole,
-  InviteEmailResult,
-  InvitesDto,
+  InviteLinkDto,
   SettlementInput,
 } from "@/lib/types";
 
@@ -59,9 +57,6 @@ function revalidateGroup(groupId: string) {
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const INVITE_ANONYMOUS_MESSAGE =
-  "If an account with this email exists, they will receive an invite.";
 
 // ---------- Groups ----------
 
@@ -320,111 +315,7 @@ async function joinGroup(db: Db, groupId: string, user: SessionUser) {
   await createLinkedAlias(db, groupId, user);
 }
 
-/**
- * Invite by email. Deliberately anonymous: the invite row is created and the
- * email is (best-effort) sent whether or not an account exists, and the
- * response message is always the same — nothing here reveals whether the
- * address belongs to an account. The one exception: someone in the owner's
- * circle is added directly (their existence is already known to the owner).
- */
-export async function inviteByEmail(groupId: string, rawEmail: string): Promise<InviteEmailResult> {
-  try {
-    const user = await requireUser();
-    const email = rawEmail.trim().toLowerCase();
-    if (!EMAIL_RE.test(email)) return { ok: false, error: "Enter a valid email address." };
-    const db = await getDb();
-    const { group } = await requireRole(db, groupId, user.id, "owner");
-
-    if (email === user.email.toLowerCase()) {
-      return { ok: false, error: "That's your own email address." };
-    }
-
-    // Already a member? The owner can see the member list, so a real answer
-    // here leaks nothing.
-    const memberEmails = await db
-      .select({ email: users.email })
-      .from(groupMembers)
-      .innerJoin(users, eq(groupMembers.userId, users.id))
-      .where(eq(groupMembers.groupId, groupId));
-    if (memberEmails.some((m) => m.email.toLowerCase() === email)) {
-      return { ok: false, error: "This person is already a member of the group." };
-    }
-
-    // Circle accounts join immediately.
-    const circle = await loadCircle(user.id);
-    const inCircle = circle.find((c) => c.email.toLowerCase() === email);
-    if (inCircle) {
-      await joinGroup(db, groupId, { id: inCircle.userId, email: inCircle.email, name: inCircle.name });
-      revalidateGroup(groupId);
-      return { ok: true, joined: true, message: `${inCircle.name} is in your circle and was added directly.` };
-    }
-
-    // Reuse a still-active invite for this address, otherwise create one.
-    const existing = await db
-      .select()
-      .from(groupInvites)
-      .where(
-        and(
-          eq(groupInvites.groupId, groupId),
-          eq(groupInvites.kind, "email"),
-          eq(groupInvites.email, email),
-          eq(groupInvites.status, "active"),
-          gt(groupInvites.expiresAt, new Date())
-        )
-      );
-    let token = existing[0]?.token;
-    if (token) {
-      await db
-        .update(groupInvites)
-        .set({ expiresAt: inviteExpiry() })
-        .where(eq(groupInvites.id, existing[0].id));
-    } else {
-      // Spam guard: bound how many outstanding email invites (and therefore
-      // outgoing emails to new addresses) a single group can have.
-      const active = await db
-        .select({ id: groupInvites.id })
-        .from(groupInvites)
-        .where(
-          and(
-            eq(groupInvites.groupId, groupId),
-            eq(groupInvites.kind, "email"),
-            eq(groupInvites.status, "active"),
-            gt(groupInvites.expiresAt, new Date())
-          )
-        );
-      if (active.length >= 20) {
-        return {
-          ok: false,
-          error: "This group has too many pending invites. Revoke some before sending more.",
-        };
-      }
-      token = newInviteToken();
-      await db.insert(groupInvites).values({
-        groupId,
-        kind: "email",
-        token,
-        email,
-        createdBy: user.id,
-        expiresAt: inviteExpiry(),
-      });
-    }
-    await sendInviteEmail({
-      to: email,
-      groupName: group.name,
-      inviterName: user.name,
-      url: joinUrl(token),
-    });
-    revalidateGroup(groupId);
-    return { ok: true, joined: false, message: INVITE_ANONYMOUS_MESSAGE };
-  } catch (e) {
-    return fail(e);
-  }
-}
-
-export async function getInvites(groupId: string): Promise<InvitesDto> {
-  const user = await requireUser();
-  const db = await getDb();
-  await requireRole(db, groupId, user.id, "owner");
+async function findActiveLink(db: Db, groupId: string) {
   const rows = await db
     .select()
     .from(groupInvites)
@@ -435,46 +326,34 @@ export async function getInvites(groupId: string): Promise<InvitesDto> {
         gt(groupInvites.expiresAt, new Date())
       )
     );
-  const link = rows.find((r) => r.kind === "link");
-  return {
-    link: link
-      ? { id: link.id, url: joinUrl(link.token), expiresAt: link.expiresAt.toISOString().slice(0, 10) }
-      : null,
-    emailInvites: rows
-      .filter((r) => r.kind === "email")
-      .map((r) => ({ id: r.id, email: r.email ?? "", expiresAt: r.expiresAt.toISOString().slice(0, 10) })),
-  };
+  return rows[0] ?? null;
+}
+
+function toLinkDto(row: { id: string; token: string; expiresAt: Date }): InviteLinkDto {
+  return { id: row.id, url: joinUrl(row.token), expiresAt: row.expiresAt.toISOString().slice(0, 10) };
+}
+
+/** The group's currently active invite link, if any (owner only). */
+export async function getInviteLink(groupId: string): Promise<InviteLinkDto | null> {
+  const user = await requireUser();
+  const db = await getDb();
+  await requireRole(db, groupId, user.id, "owner");
+  const link = await findActiveLink(db, groupId);
+  return link ? toLinkDto(link) : null;
 }
 
 /** Return the existing active invite link, or create a fresh 7-day one. */
-export async function createInviteLink(groupId: string): Promise<InvitesDto["link"]> {
+export async function createInviteLink(groupId: string): Promise<InviteLinkDto> {
   const user = await requireUser();
   const db = await getDb();
   await requireRole(db, groupId, user.id, "owner");
-  const existing = await db
-    .select()
-    .from(groupInvites)
-    .where(
-      and(
-        eq(groupInvites.groupId, groupId),
-        eq(groupInvites.kind, "link"),
-        eq(groupInvites.status, "active"),
-        gt(groupInvites.expiresAt, new Date())
-      )
-    );
-  if (existing[0]) {
-    return {
-      id: existing[0].id,
-      url: joinUrl(existing[0].token),
-      expiresAt: existing[0].expiresAt.toISOString().slice(0, 10),
-    };
-  }
-  const token = newInviteToken();
+  const existing = await findActiveLink(db, groupId);
+  if (existing) return toLinkDto(existing);
   const rows = await db
     .insert(groupInvites)
-    .values({ groupId, kind: "link", token, createdBy: user.id, expiresAt: inviteExpiry() })
+    .values({ groupId, token: newInviteToken(), createdBy: user.id, expiresAt: inviteExpiry() })
     .returning();
-  return { id: rows[0].id, url: joinUrl(token), expiresAt: rows[0].expiresAt.toISOString().slice(0, 10) };
+  return toLinkDto(rows[0]);
 }
 
 export async function revokeInvite(inviteId: string): Promise<ActionResult> {
@@ -502,41 +381,14 @@ export async function acceptInvite(token: string): Promise<ActionResult> {
     if (!invite) return { ok: false, error: "This invite link is not valid." };
 
     const membership = await getMembership(db, invite.groupId, user.id);
-    if (membership) {
-      if (invite.kind === "email" && invite.email === user.email.toLowerCase() && invite.status === "active") {
-        await db.update(groupInvites).set({ status: "accepted" }).where(eq(groupInvites.id, invite.id));
-      }
-      return { ok: true, id: invite.groupId };
-    }
+    if (membership) return { ok: true, id: invite.groupId };
     if (!inviteIsUsable(invite)) {
       return { ok: false, error: "This invite has expired. Ask for a new one." };
     }
-    if (invite.kind === "email" && invite.email !== user.email.toLowerCase()) {
-      return { ok: false, error: "This invite was sent to a different email address." };
-    }
 
     await joinGroup(db, invite.groupId, user);
-    if (invite.kind === "email") {
-      await db.update(groupInvites).set({ status: "accepted" }).where(eq(groupInvites.id, invite.id));
-    }
     revalidateGroup(invite.groupId);
     return { ok: true, id: invite.groupId };
-  } catch (e) {
-    return fail(e);
-  }
-}
-
-export async function declineInvite(token: string): Promise<ActionResult> {
-  try {
-    const user = await requireUser();
-    const db = await getDb();
-    const rows = await db.select().from(groupInvites).where(eq(groupInvites.token, token));
-    const invite = rows[0];
-    if (invite && invite.kind === "email" && invite.email === user.email.toLowerCase()) {
-      await db.update(groupInvites).set({ status: "declined" }).where(eq(groupInvites.id, invite.id));
-      revalidatePath("/");
-    }
-    return { ok: true };
   } catch (e) {
     return fail(e);
   }

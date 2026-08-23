@@ -10,16 +10,14 @@ export default async function JoinPage({ params }: { params: Promise<{ token: st
   if (!session?.user?.id) {
     redirect(`/login?callbackUrl=${encodeURIComponent(`/join/${token}`)}`);
   }
-  const preview = await loadInvitePreview(token, session.user.id, session.user.email);
+  const preview = await loadInvitePreview(token, session.user.id);
   if (preview.state === "member") redirect(`/groups/${preview.groupId}`);
 
   if (preview.state !== "ok") {
     const message =
       preview.state === "invalid"
         ? "This invite link is not valid."
-        : preview.state === "expired"
-          ? "This invite has expired. Ask the group owner for a new one."
-          : `This invite was addressed to a different email account. You are signed in as ${session.user.email}.`;
+        : "This invite has expired. Ask the group owner for a new one.";
     return (
       <main className="flex min-h-screen items-center justify-center px-4">
         <div className="card w-full max-w-sm px-6 py-8 text-center">

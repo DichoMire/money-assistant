@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { acceptInvite, declineInvite } from "@/app/actions";
+import { acceptInvite } from "@/app/actions";
 
 export function JoinCard({
   token,
@@ -31,9 +31,7 @@ export function JoinCard({
     }
   };
 
-  const decline = async () => {
-    setBusy(true);
-    await declineInvite(token);
+  const decline = () => {
     router.push("/");
   };
 
@@ -64,7 +62,7 @@ export function JoinCard({
       <button
         type="button"
         className="btn btn-secondary mt-2 w-full"
-        onClick={() => void decline()}
+        onClick={decline}
         disabled={busy}
       >
         No thanks

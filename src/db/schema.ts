@@ -59,17 +59,14 @@ export const groupMembers = pgTable(
   (t) => [primaryKey({ columns: [t.groupId, t.userId] })]
 );
 
-// kind "link": shareable multi-use URL. kind "email": targeted single-use
-// invite; email is stored lowercased and must match the accepting account.
-// status: active | expired | revoked | accepted | declined.
+// Shareable multi-use join links, valid for 7 days (the daily cron expires
+// them). status: active | expired | revoked.
 export const groupInvites = pgTable("group_invites", {
   id: uuid("id").primaryKey().defaultRandom(),
   groupId: uuid("group_id")
     .notNull()
     .references(() => groups.id, { onDelete: "cascade" }),
-  kind: text("kind").notNull(),
   token: text("token").notNull().unique(),
-  email: text("email"),
   createdBy: uuid("created_by")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),

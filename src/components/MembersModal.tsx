@@ -8,19 +8,16 @@ import {
   createInviteLink,
   deleteAlias,
   getCircleForGroup,
-  getInvites,
-  inviteByEmail,
+  getInviteLink,
   leaveGroup,
   removeMember,
   renameAlias,
   revokeInvite,
 } from "@/app/actions";
 import { formatDate } from "@/lib/format";
-import type { CircleUserDto, GroupDto, InvitesDto } from "@/lib/types";
+import type { CircleUserDto, GroupDto, InviteLinkDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
 import { Modal } from "./Modal";
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () => void }) {
   const router = useRouter();
@@ -28,7 +25,8 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
 
   const [query, setQuery] = useState("");
   const [circle, setCircle] = useState<CircleUserDto[]>([]);
-  const [invites, setInvites] = useState<InvitesDto | null>(null);
+  const [link, setLink] = useState<InviteLinkDto | null>(null);
+  const [linkLoaded, setLinkLoaded] = useState(false);
   const [copied, setCopied] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +39,12 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
   const reloadInviteData = useCallback(() => {
     if (!isOwner) return;
     void getCircleForGroup(group.id).then(setCircle).catch(() => {});
-    void getInvites(group.id).then(setInvites).catch(() => {});
+    void getInviteLink(group.id)
+      .then((l) => {
+        setLink(l);
+        setLinkLoaded(true);
+      })
+      .catch(() => {});
   }, [group.id, isOwner]);
 
   useEffect(() => {
@@ -62,22 +65,6 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
     if (!q) return false;
     return c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q);
   });
-  const queryIsEmail = EMAIL_RE.test(query.trim());
-
-  const sendEmailInvite = async () => {
-    setBusy(true);
-    setError(null);
-    setInfo(null);
-    const result = await inviteByEmail(group.id, query.trim());
-    setBusy(false);
-    if (result.ok) {
-      setInfo(result.message);
-      setQuery("");
-      reloadInviteData();
-    } else {
-      setError(result.error);
-    }
-  };
 
   const copyLink = async (url: string) => {
     try {
@@ -100,7 +87,7 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
             <p className="label">Invite people</p>
             <input
               className="input"
-              placeholder="Type a name from your circle, or an email address…"
+              placeholder="Search your circle by name or email…"
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
@@ -134,30 +121,25 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                 ))}
               </ul>
             )}
-            {queryIsEmail && suggestions.length === 0 && (
-              <button
-                type="button"
-                className="btn btn-secondary mt-2 w-full"
-                disabled={busy}
-                onClick={() => void sendEmailInvite()}
-              >
-                Invite {query.trim()} by email
-              </button>
+            {query.trim() !== "" && suggestions.length === 0 && (
+              <p className="mt-1 text-sm text-gray-500">
+                No one in your circle matches. Share the invite link below instead.
+              </p>
             )}
             <p className="mt-1 text-xs text-gray-400">
-              People you already share a group with join instantly. Anyone else gets an email
-              invite valid for 7 days.
+              Your circle is everyone you already share a group with — they can be added
+              instantly. Anyone else joins through the invite link.
             </p>
             {info && <p className="mt-2 text-sm font-medium" style={{ color: "var(--brand-dark)" }}>{info}</p>}
 
             {/* Invite link */}
             <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
               <p className="text-xs font-semibold text-gray-500 uppercase">Invite link</p>
-              {invites?.link ? (
+              {link ? (
                 <>
                   <div className="mt-2 flex gap-2">
-                    <input className="input !py-1.5 font-mono !text-xs" readOnly value={invites.link.url} onFocus={(e) => e.target.select()} />
-                    <button type="button" className="btn btn-primary shrink-0 !px-3 !py-1.5 !text-xs" onClick={() => void copyLink(invites.link!.url)}>
+                    <input className="input !py-1.5 font-mono !text-xs" readOnly value={link.url} onFocus={(e) => e.target.select()} />
+                    <button type="button" className="btn btn-primary shrink-0 !px-3 !py-1.5 !text-xs" onClick={() => void copyLink(link.url)}>
                       {copied ? "Copied!" : "Copy"}
                     </button>
                     <button
@@ -165,27 +147,26 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                       className="btn btn-danger shrink-0 !px-3 !py-1.5 !text-xs"
                       disabled={busy}
                       onClick={async () => {
-                        if (await run(() => revokeInvite(invites.link!.id))) reloadInviteData();
+                        if (await run(() => revokeInvite(link.id))) reloadInviteData();
                       }}
                     >
                       Revoke
                     </button>
                   </div>
                   <p className="mt-1 text-xs text-gray-400">
-                    Anyone with this link can join until {formatDate(invites.link.expiresAt)}.
+                    Anyone with this link can join until {formatDate(link.expiresAt)}.
                   </p>
                 </>
               ) : (
                 <button
                   type="button"
                   className="btn btn-secondary mt-2"
-                  disabled={busy || invites === null}
+                  disabled={busy || !linkLoaded}
                   onClick={async () => {
                     setBusy(true);
                     setError(null);
                     try {
-                      await createInviteLink(group.id);
-                      reloadInviteData();
+                      setLink(await createInviteLink(group.id));
                     } catch {
                       setError("Could not create the link.");
                     }
@@ -196,31 +177,6 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                 </button>
               )}
             </div>
-
-            {/* Pending email invites */}
-            {invites && invites.emailInvites.length > 0 && (
-              <div className="mt-3">
-                <p className="text-xs font-semibold text-gray-500 uppercase">Pending email invites</p>
-                <ul className="mt-1 space-y-1">
-                  {invites.emailInvites.map((inv) => (
-                    <li key={inv.id} className="flex items-center gap-2 text-sm text-gray-600">
-                      <span className="min-w-0 flex-1 truncate">{inv.email}</span>
-                      <span className="text-xs text-gray-400">until {formatDate(inv.expiresAt)}</span>
-                      <button
-                        type="button"
-                        className="cursor-pointer rounded-md px-2 py-0.5 text-xs font-semibold text-gray-400 hover:bg-red-50 hover:text-red-500"
-                        disabled={busy}
-                        onClick={async () => {
-                          if (await run(() => revokeInvite(inv.id))) reloadInviteData();
-                        }}
-                      >
-                        Revoke
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
           </section>
         )}
 

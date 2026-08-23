@@ -17,22 +17,11 @@ export type GroupMemberDto = {
 
 export type CircleUserDto = { userId: string; name: string; email: string };
 
-export type InvitesDto = {
-  link: { id: string; url: string; expiresAt: string } | null;
-  emailInvites: { id: string; email: string; expiresAt: string }[];
-};
-
-export type PendingInviteDto = {
-  token: string;
-  groupName: string;
-  inviterName: string;
-  expiresAt: string;
-};
+export type InviteLinkDto = { id: string; url: string; expiresAt: string };
 
 export type JoinPreview =
   | { state: "invalid" }
   | { state: "expired" }
-  | { state: "wrong-email"; email: string }
   | { state: "member"; groupId: string }
   | { state: "ok"; groupId: string; groupName: string; inviterName: string; peopleCount: number };
 
@@ -115,7 +104,3 @@ export type SettlementInput = {
 };
 
 export type ActionResult = { ok: true; id?: string } | { ok: false; error: string };
-
-export type InviteEmailResult =
-  | { ok: false; error: string }
-  | { ok: true; joined: boolean; message: string };

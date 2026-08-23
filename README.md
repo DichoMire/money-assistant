@@ -9,17 +9,13 @@ per-group toggle switches between "everyone pays exactly what they owe" and a
 ## Features
 
 - **Google sign-in** (Auth.js / NextAuth v5). Each account sees only groups it owns or joined.
-- **Multi-user groups**: one **owner** (admin) plus members.
-  - **Email invites** (owner only): deliberately anonymous — the response is
-    always *"If an account with this email exists, they will receive an
-    invite"* and an invite is stored (and emailed, when Resend is configured)
-    regardless of whether the address has an account, so nothing leaks.
-    Invites also appear in-app on the invitee's dashboard.
+- **Multi-user groups**: one **owner** (admin) plus members. Invite-link only —
+  the app never sends email.
   - **Circle**: people you already share a group with are suggested as you
     type and join instantly, without an invite.
-  - **Invite links**: shareable `/join/<token>` URLs, valid for 7 days (the
-    daily cron deactivates expired ones). Logged-out visitors are sent through
-    login and back; logged-in ones get a Discord-style join card.
+  - **Invite links** (owner only): shareable `/join/<token>` URLs, valid for 7
+    days (the daily cron deactivates expired ones). Logged-out visitors are
+    sent through login and back; logged-in ones get a Discord-style join card.
   - Owners can remove members; members can leave. Either way the person's
     expense history is preserved by converting their alias back to a virtual
     member.
@@ -72,8 +68,7 @@ npx tsx scripts/seed-dev.ts you@example.com
 
 To try the multi-user flows locally, sign in as two different emails via the
 dev login (e.g. in a normal and a private browser window), create a group as
-one, and invite the other — without `RESEND_API_KEY` the invite shows up on the
-second account's dashboard, and the join link is printed to the dev console.
+one, generate an invite link in People → Invite, and open it as the other.
 
 Tests:
 
@@ -101,11 +96,7 @@ Delete the `.pglite/` folder to reset the local database.
    `openssl rand -base64 32`).
 6. **Cron protection** (recommended): set `CRON_SECRET` to any random string.
    Vercel automatically sends it as a Bearer token to the cron route.
-7. **Invite emails** (optional): create a free account at
-   [resend.com](https://resend.com), set `RESEND_API_KEY`, and (once you verify
-   a domain there) `EMAIL_FROM` to a sender on that domain. Without these,
-   invites still work fully in-app — no email is sent.
-8. Deploy. `vercel.json` schedules `GET /api/cron/daily` at 06:00 UTC (within
+7. Deploy. `vercel.json` schedules `GET /api/cron/daily` at 06:00 UTC (within
    the Hobby plan's once-per-day cron limit): it fetches the day's rates and
    deactivates invites older than 7 days. The first run backfills the last 90
    days of rates; you can also trigger rates manually with **Update rates now**
@@ -120,7 +111,7 @@ All env vars are listed in [.env.example](.env.example).
 | `users`          | Google accounts (upserted on sign-in)                                  |
 | `groups`         | name, base currency, `simplify_debts` toggle, owner (`user_id`)        |
 | `group_members`  | non-owner accounts that joined a group (the owner is implicit)         |
-| `group_invites`  | link + email invites: token, status, 7-day expiry                      |
+| `group_invites`  | shareable join links: token, status, 7-day expiry                      |
 | `aliases`        | the participants in a group; `user_id` links one to a real account, null = virtual member |
 | `expenses`       | bills **and** settlements (`kind`), amount in integer cents, currency, date, split method |
 | `expense_payers` | who paid how much (supports multiple payers)                           |

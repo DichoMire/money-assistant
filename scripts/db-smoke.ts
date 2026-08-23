@@ -95,37 +95,32 @@ async function main() {
   assert.equal(memberSummaries[0].role, "member");
   assert.equal(memberSummaries[0].memberCount, 2);
 
-  // Email invites: pending list + join preview states.
-  const { loadInvitePreview, loadPendingInvites } = await import("../src/lib/group-data");
+  // Invite links: join preview states.
+  const { loadInvitePreview } = await import("../src/lib/group-data");
   const [third] = await db.insert(users).values({ email: "third@test.local", name: "Third" }).returning();
   const expiresAt = new Date(Date.now() + 7 * 86_400_000);
   await db.insert(groupInvites).values({
     groupId: group.id,
-    kind: "email",
-    token: "tok-email-1",
-    email: "third@test.local",
+    token: "tok-link-1",
     createdBy: user.id,
     expiresAt,
   });
-  const pending = await loadPendingInvites("third@test.local");
-  assert.equal(pending.length, 1);
-  assert.equal(pending[0].groupName, "Trip");
-
-  const okPreview = await loadInvitePreview("tok-email-1", third.id, "third@test.local");
+  const okPreview = await loadInvitePreview("tok-link-1", third.id);
   assert.equal(okPreview.state, "ok");
-  const [fourth] = await db.insert(users).values({ email: "fourth@test.local" }).returning();
-  assert.equal((await loadInvitePreview("tok-email-1", fourth.id, "fourth@test.local")).state, "wrong-email");
-  assert.equal((await loadInvitePreview("tok-email-1", user.id, user.email)).state, "member");
-  assert.equal((await loadInvitePreview("no-such-token", third.id, "third@test.local")).state, "invalid");
+  if (okPreview.state === "ok") {
+    assert.equal(okPreview.groupName, "Trip");
+    assert.equal(okPreview.peopleCount, 3);
+  }
+  assert.equal((await loadInvitePreview("tok-link-1", user.id)).state, "member");
+  assert.equal((await loadInvitePreview("no-such-token", third.id)).state, "invalid");
 
   await db.insert(groupInvites).values({
     groupId: group.id,
-    kind: "link",
     token: "tok-link-old",
     createdBy: user.id,
     expiresAt: new Date(Date.now() - 86_400_000),
   });
-  assert.equal((await loadInvitePreview("tok-link-old", third.id, "third@test.local")).state, "expired");
+  assert.equal((await loadInvitePreview("tok-link-old", third.id)).state, "expired");
 }
 
 main()
