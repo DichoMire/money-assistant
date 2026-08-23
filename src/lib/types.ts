@@ -1,4 +1,5 @@
 import type { SplitMethod, SplitEntry } from "./split";
+import type { AssignMode } from "./receipt-convert";
 import type { Debt } from "./simplify";
 
 /** userId links the alias to a real account; null = virtual member. */
@@ -43,6 +44,8 @@ export type ExpenseDto = {
   convertedCents: number | null;
   /** Date of the FX rate used for the conversion (null if none / not needed). */
   rateDate: string | null;
+  /** The receipt scan this expense was converted from, if any. */
+  scanId: string | null;
 };
 
 export type RatesInfo = {
@@ -105,6 +108,77 @@ export type SettlementInput = {
 };
 
 export type ActionResult = { ok: true; id?: string } | { ok: false; error: string };
+
+// ---------- Receipt scanning ----------
+
+export type ScanItemShareDto = { aliasId: string; exactCents: number | null };
+
+export type ScanItemDto = {
+  id: string;
+  position: number;
+  /** Verbatim printed receipt line, for "that's wrong" verification. */
+  rawText: string | null;
+  name: string;
+  quantity: number;
+  unitPriceCents: number | null;
+  /** Negative for coupon / deposit-return lines. */
+  totalCents: number;
+  category: string | null;
+  assignMode: AssignMode;
+  shares: ScanItemShareDto[];
+};
+
+export type ScanDetailDto = {
+  id: string;
+  groupId: string;
+  status: string;
+  merchant: string | null;
+  date: string;
+  currency: string;
+  subtotalCents: number | null;
+  taxCents: number;
+  tipCents: number;
+  /** Receipt-level discount as a positive magnitude. */
+  discountsCents: number;
+  totalCents: number;
+  confidence: number | null;
+  reconciles: boolean;
+  model: string | null;
+  /** Linked expense after conversion (null = draft, or expense was deleted). */
+  expenseId: string | null;
+  items: ScanItemDto[];
+  createdAt: string;
+};
+
+export type ScanSummaryDto = {
+  id: string;
+  merchant: string | null;
+  date: string;
+  currency: string;
+  totalCents: number;
+  itemCount: number;
+  reconciles: boolean;
+  expenseId: string | null;
+  createdAt: string;
+};
+
+export type ScanItemInput = Omit<ScanItemDto, "id">;
+
+export type ScanEditInput = {
+  scanId: string;
+  merchant: string | null;
+  date: string;
+  currency: string;
+  taxCents: number;
+  tipCents: number;
+  discountsCents: number;
+  totalCents: number;
+  items: ScanItemInput[];
+};
+
+export type ParseReceiptResult =
+  | { ok: true; scanId: string; duplicate?: boolean }
+  | { ok: false; error: string };
 
 export type ActivityEntryDto = {
   id: string;

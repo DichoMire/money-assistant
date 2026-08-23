@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { getDb, type Db } from "@/db";
 import {
   aliases,
@@ -9,6 +9,7 @@ import {
   groupInvites,
   groupMembers,
   groups,
+  receiptScans,
   users,
 } from "@/db/schema";
 import { inviteIsUsable } from "./invites";
@@ -100,7 +101,7 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
   if (!membership) return null;
   const { group } = membership;
 
-  const [aliasRows, expenseRows, fxRowsRaw, memberRows, ownerRows] = await Promise.all([
+  const [aliasRows, expenseRows, fxRowsRaw, memberRows, ownerRows, scanLinkRows] = await Promise.all([
     db.select().from(aliases).where(eq(aliases.groupId, groupId)).orderBy(asc(aliases.createdAt)),
     db
       .select()
@@ -114,7 +115,12 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
       .innerJoin(users, eq(groupMembers.userId, users.id))
       .where(eq(groupMembers.groupId, groupId)),
     db.select().from(users).where(eq(users.id, group.userId)),
+    db
+      .select({ scanId: receiptScans.id, expenseId: receiptScans.expenseId })
+      .from(receiptScans)
+      .where(and(eq(receiptScans.groupId, groupId), isNotNull(receiptScans.expenseId))),
   ]);
+  const scanByExpense = new Map(scanLinkRows.map((r) => [r.expenseId!, r.scanId]));
 
   const expenseIds = expenseRows.map((e) => e.id);
   const [payerRows, shareRows] =
@@ -149,6 +155,7 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
         .map((s) => ({ aliasId: s.aliasId, owedCents: s.owedCents, splitValue: s.splitValue })),
       convertedCents,
       rateDate: needsConversion ? (rateRow?.date ?? null) : null,
+      scanId: scanByExpense.get(e.id) ?? null,
     };
   });
 

@@ -54,6 +54,12 @@ function describe(entry: ActivityEntryDto): string {
       return `edited a payment: ${s("fromName")} paid ${s("toName")} ${money()}`;
     case "payment.deleted":
       return `deleted a payment: ${s("fromName")} paid ${s("toName")} ${money()}`;
+    case "receipt.scanned":
+      return `scanned a receipt${d.merchant ? ` from ${s("merchant")}` : ""} — ${money()}`;
+    case "receipt.converted":
+      return `converted a receipt${d.merchant ? ` from ${s("merchant")}` : ""} into an expense — ${money()}`;
+    case "receipt.deleted":
+      return `deleted a scanned receipt${d.merchant ? ` from ${s("merchant")}` : ""} — ${money()}`;
     default:
       return entry.action;
   }

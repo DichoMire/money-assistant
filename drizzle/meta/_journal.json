@@ -29,6 +29,13 @@
       "when": 1787486204719,
       "tag": "0003_activity-log",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787503011813,
+      "tag": "0004_receipt-scans",
+      "breakpoints": true
     }
   ]
 }

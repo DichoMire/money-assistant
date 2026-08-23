@@ -8,6 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "test:math": "tsx scripts/math.test.ts",
+    "test:receipt": "tsx scripts/receipt.test.ts",
+    "test:receipt-db": "tsx scripts/receipt-db.test.ts",
+    "seed:scan": "tsx scripts/seed-scan-dev.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push"
   },

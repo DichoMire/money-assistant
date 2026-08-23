@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { updateGroup } from "@/app/actions";
 import type { Debt } from "@/lib/simplify";
@@ -60,6 +61,15 @@ export function GroupView({ data }: { data: GroupDto }) {
           >
             Add expense
           </button>
+          <Link
+            href={`/groups/${data.id}/scan`}
+            className={`btn btn-secondary ${
+              data.aliases.length === 0 ? "pointer-events-none opacity-50" : ""
+            }`}
+            aria-disabled={data.aliases.length === 0}
+          >
+            Scan receipt
+          </Link>
           <button
             type="button"
             className="btn btn-secondary"

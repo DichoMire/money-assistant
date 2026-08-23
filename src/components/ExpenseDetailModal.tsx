@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { deleteExpense } from "@/app/actions";
 import { formatDate } from "@/lib/format";
@@ -79,6 +80,18 @@ export function ExpenseDetailModal({
             <p className="text-sm text-gray-500">
               {formatDate(expense.date)}
               {!isSettlement && <> · split {SPLIT_METHOD_LABELS[expense.splitMethod]}</>}
+              {expense.scanId && (
+                <>
+                  {" · "}
+                  <Link
+                    href={`/groups/${group.id}/scan/${expense.scanId}`}
+                    className="underline hover:text-gray-700"
+                    onClick={onClose}
+                  >
+                    View receipt
+                  </Link>
+                </>
+              )}
             </p>
           </div>
           <div className="shrink-0 text-right">

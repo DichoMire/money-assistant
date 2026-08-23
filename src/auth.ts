@@ -61,6 +61,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (user?.email) {
         const dbUser = await ensureUser(user.email, user.name, user.image);
         token.uid = dbUser.id;
+      } else if (devLoginEnabled && typeof token.email === "string") {
+        // Local dev databases get wiped and recreated, and a session JWT
+        // minted against an old database then carries a stale uid — every
+        // insert referencing users.id fails its FK. Re-upsert by email so
+        // stale dev sessions heal instead of erroring. Dev login only;
+        // production (Google) sessions are untouched.
+        const dbUser = await ensureUser(
+          token.email,
+          typeof token.name === "string" ? token.name : null
+        );
+        token.uid = dbUser.id;
       }
       return token;
     },
