@@ -1,6 +1,7 @@
 /* End-to-end smoke test of schema + migrations + group-data pipeline against
    the embedded PGlite database. Run: npx tsx scripts/db-smoke.ts */
 import { strict as assert } from "node:assert";
+import { eq } from "drizzle-orm";
 import { getDb } from "../src/db";
 import { aliases, expensePayers, expenseShares, expenses, fxRates, groups, users } from "../src/db/schema";
 import { loadGroupData, loadGroupSummaries } from "../src/lib/group-data";
@@ -121,6 +122,50 @@ async function main() {
     expiresAt: new Date(Date.now() - 86_400_000),
   });
   assert.equal((await loadInvitePreview("tok-link-old", third.id)).state, "expired");
+
+  // Attach a virtual member to an account: "other" (a member) has their own
+  // alias with history that must merge into virtual Cara's alias.
+  const { mergeAliasReferences } = await import("../src/lib/merge-alias");
+  const [otherAlias] = await db
+    .insert(aliases)
+    .values({ groupId: group.id, name: "Other", userId: other.id })
+    .returning();
+  // e3: both aliases appear as payer AND ower -> exercises the summing path.
+  const [e3] = await db
+    .insert(expenses)
+    .values({ groupId: group.id, description: "Taxi", amountCents: 1000, currency: "USD", date: "2026-08-23", splitMethod: "exact" })
+    .returning();
+  await db.insert(expensePayers).values([
+    { expenseId: e3.id, aliasId: otherAlias.id, paidCents: 400 },
+    { expenseId: e3.id, aliasId: cara.id, paidCents: 600 },
+  ]);
+  await db.insert(expenseShares).values([
+    { expenseId: e3.id, aliasId: otherAlias.id, owedCents: 500, splitValue: 500 },
+    { expenseId: e3.id, aliasId: cara.id, owedCents: 500, splitValue: 500 },
+  ]);
+  // e4: only the old alias appears -> exercises the simple re-point path.
+  const [e4] = await db
+    .insert(expenses)
+    .values({ groupId: group.id, description: "Snack", amountCents: 200, currency: "USD", date: "2026-08-23", splitMethod: "exact" })
+    .returning();
+  await db.insert(expensePayers).values({ expenseId: e4.id, aliasId: otherAlias.id, paidCents: 200 });
+  await db.insert(expenseShares).values({ expenseId: e4.id, aliasId: otherAlias.id, owedCents: 200, splitValue: 200 });
+
+  await mergeAliasReferences(db, otherAlias.id, cara.id);
+  await db.delete(aliases).where(eq(aliases.id, otherAlias.id));
+  await db.update(aliases).set({ userId: other.id }).where(eq(aliases.id, cara.id));
+
+  const merged = await loadGroupData(group.id, other.id);
+  assert.ok(merged);
+  assert.equal(merged.aliases.some((a) => a.id === otherAlias.id), false);
+  assert.equal(merged.aliases.find((a) => a.id === cara.id)?.userId, other.id);
+  assert.equal(merged.members.find((m) => m.userId === other.id)?.aliasId, cara.id);
+  const taxi = merged.expenses.find((e) => e.description === "Taxi")!;
+  assert.deepEqual(taxi.payers, [{ aliasId: cara.id, paidCents: 1000 }]);
+  assert.deepEqual(taxi.shares, [{ aliasId: cara.id, owedCents: 1000, splitValue: 1000 }]);
+  const snack = merged.expenses.find((e) => e.description === "Snack")!;
+  assert.deepEqual(snack.payers, [{ aliasId: cara.id, paidCents: 200 }]);
+  assert.deepEqual(snack.shares, [{ aliasId: cara.id, owedCents: 200, splitValue: 200 }]);
 }
 
 main()

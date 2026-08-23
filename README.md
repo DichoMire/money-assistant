@@ -21,6 +21,10 @@ per-group toggle switches between "everyone pays exactly what they owe" and a
     member.
   - **Virtual members** coexist with real ones — add people who don't want
     accounts, exactly like a single-user Splitwise.
+  - **Attach**: once a person joins for real, the owner can attach their
+    virtual member to the account (People → Attach). The virtual identity and
+    its whole expense history become theirs; if their account already logged
+    expenses under its own name, the two histories are merged.
 - **Groups** with a base currency and a *simplify debts* toggle.
 - **Bills** with description, amount, currency, date, **who paid** (one person
   or multiple people with exact amounts) and **who owes**, with five split

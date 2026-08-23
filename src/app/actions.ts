@@ -16,6 +16,7 @@ import {
 } from "@/db/schema";
 import { isSupportedCurrency } from "@/lib/currencies";
 import { getMembership, loadCircle } from "@/lib/group-data";
+import { mergeAliasReferences } from "@/lib/merge-alias";
 import { inviteExpiry, inviteIsUsable, joinUrl, newInviteToken } from "@/lib/invites";
 import { refreshRates } from "@/lib/rates-fetch";
 import { computeShares, validatePayers, SPLIT_METHODS } from "@/lib/split";
@@ -217,6 +218,38 @@ export async function deleteAlias(aliasId: string): Promise<ActionResult> {
       };
     }
     await db.delete(aliases).where(eq(aliases.id, aliasId));
+    revalidateGroup(alias.groupId);
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Attach a virtual member to a real account in the group. If the account
+ * already has its own participant alias, that alias's expense history is
+ * merged into the virtual one and removed — the virtual alias (and its name)
+ * becomes the account's identity in the group.
+ */
+export async function attachAlias(aliasId: string, targetUserId: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const db = await getDb();
+    const alias = await requireAliasInOwnedGroup(db, aliasId, user.id);
+    if (alias.userId) {
+      return { ok: false, error: "This person is already linked to an account." };
+    }
+    const membership = await getMembership(db, alias.groupId, targetUserId);
+    if (!membership) {
+      return { ok: false, error: "That account is not a member of this group." };
+    }
+    const groupAliases = await db.select().from(aliases).where(eq(aliases.groupId, alias.groupId));
+    const existing = groupAliases.find((a) => a.userId === targetUserId);
+    if (existing) {
+      await mergeAliasReferences(db, existing.id, alias.id);
+      await db.delete(aliases).where(eq(aliases.id, existing.id));
+    }
+    await db.update(aliases).set({ userId: targetUserId }).where(eq(aliases.id, alias.id));
     revalidateGroup(alias.groupId);
     return { ok: true };
   } catch (e) {

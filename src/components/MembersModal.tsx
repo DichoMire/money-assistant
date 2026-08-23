@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   addAlias,
   addCircleMember,
+  attachAlias,
   createInviteLink,
   deleteAlias,
   getCircleForGroup,
@@ -35,6 +36,8 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
   const [newVirtualName, setNewVirtualName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [attachingId, setAttachingId] = useState<string | null>(null);
+  const [attachTarget, setAttachTarget] = useState("");
 
   const reloadInviteData = useCallback(() => {
     if (!isOwner) return;
@@ -221,7 +224,8 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
         <section>
           <p className="label">Virtual members ({virtualAliases.length})</p>
           <p className="mb-1 text-xs text-gray-400">
-            People without accounts — you track their share for them.
+            People without accounts — you track their share for them. When they join the group,
+            use <span className="font-semibold">Attach</span> to hand their history to their account.
           </p>
           {virtualAliases.length === 0 && (
             <p className="text-sm text-gray-400">None yet.</p>
@@ -242,6 +246,41 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                     <button type="submit" className="btn btn-primary !px-3 !py-1.5" disabled={busy}>Save</button>
                     <button type="button" className="btn btn-secondary !px-3 !py-1.5" onClick={() => setEditingId(null)}>Cancel</button>
                   </form>
+                ) : attachingId === a.id ? (
+                  <form
+                    className="flex min-w-0 flex-1 items-center gap-2"
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const target = group.members.find((m) => m.userId === attachTarget);
+                      if (!target) return;
+                      const merges = target.aliasId !== null;
+                      const detail = merges
+                        ? `Their expense histories will be merged into one person named "${a.name}".`
+                        : `"${a.name}" and its history will become their identity in this group.`;
+                      if (!window.confirm(`Attach ${a.name} to ${target.name} (${target.email})? ${detail}`)) return;
+                      if (await run(() => attachAlias(a.id, attachTarget))) setAttachingId(null);
+                    }}
+                  >
+                    <span className="shrink-0 truncate text-sm font-medium text-gray-700">{a.name} →</span>
+                    <select
+                      className="input !py-1.5"
+                      value={attachTarget}
+                      onChange={(e) => setAttachTarget(e.target.value)}
+                      autoFocus
+                    >
+                      {group.members.map((m) => (
+                        <option key={m.userId} value={m.userId}>
+                          {m.name} ({m.email})
+                        </option>
+                      ))}
+                    </select>
+                    <button type="submit" className="btn btn-primary !px-3 !py-1.5" disabled={busy || !attachTarget}>
+                      Attach
+                    </button>
+                    <button type="button" className="btn btn-secondary !px-3 !py-1.5" onClick={() => setAttachingId(null)}>
+                      Cancel
+                    </button>
+                  </form>
                 ) : (
                   <>
                     <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-700">{a.name}</span>
@@ -250,7 +289,20 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                         <button
                           type="button"
                           className="cursor-pointer rounded-md px-2 py-1 text-xs font-semibold text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                          title="Link this virtual member to a group member's account"
                           onClick={() => {
+                            setEditingId(null);
+                            setAttachingId(a.id);
+                            setAttachTarget(group.members[0]?.userId ?? "");
+                          }}
+                        >
+                          Attach
+                        </button>
+                        <button
+                          type="button"
+                          className="cursor-pointer rounded-md px-2 py-1 text-xs font-semibold text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                          onClick={() => {
+                            setAttachingId(null);
                             setEditingId(a.id);
                             setEditName(a.name);
                           }}
