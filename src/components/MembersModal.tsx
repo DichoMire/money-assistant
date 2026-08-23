@@ -187,70 +187,36 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
         <section>
           <p className="label">Members ({group.members.length})</p>
           <ul className="space-y-1">
-            {group.members.map((m) => {
-              const alias = group.aliases.find((a) => a.id === m.aliasId);
-              return (
-                <li key={m.userId} className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-gray-50">
-                  <Avatar id={m.aliasId ?? m.userId} name={m.name} size={30} />
-                  {alias && editingId === alias.id ? (
-                    <form
-                      className="flex flex-1 gap-2"
-                      onSubmit={async (e) => {
-                        e.preventDefault();
-                        if (await run(() => renameAlias(alias.id, editName))) setEditingId(null);
-                      }}
-                    >
-                      <input className="input !py-1.5" value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus />
-                      <button type="submit" className="btn btn-primary !px-3 !py-1.5" disabled={busy}>Save</button>
-                      <button type="button" className="btn btn-secondary !px-3 !py-1.5" onClick={() => setEditingId(null)}>Cancel</button>
-                    </form>
-                  ) : (
-                    <>
-                      <span className="min-w-0 flex-1 truncate">
-                        <span className="text-sm font-medium text-gray-700">{m.name}</span>{" "}
-                        <span className="text-xs text-gray-400">{m.email}</span>
-                        {alias && alias.name !== m.name && (
-                          <span className="text-xs text-gray-400"> · shown as {alias.name}</span>
-                        )}
-                      </span>
-                      {m.isOwner && (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                          Owner
-                        </span>
-                      )}
-                      {isOwner && alias && (
-                        <button
-                          type="button"
-                          className="cursor-pointer rounded-md px-2 py-0.5 text-xs font-semibold text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                          title="Change how this person is named in expenses and balances"
-                          onClick={() => {
-                            setAttachingId(null);
-                            setEditingId(alias.id);
-                            setEditName(alias.name);
-                          }}
-                        >
-                          Rename
-                        </button>
-                      )}
-                      {isOwner && !m.isOwner && (
-                        <button
-                          type="button"
-                          className="cursor-pointer rounded-md px-2 py-0.5 text-xs font-semibold text-gray-400 hover:bg-red-50 hover:text-red-500"
-                          disabled={busy}
-                          onClick={() => {
-                            if (window.confirm(`Remove ${m.name} from the group? Their expense history stays as a virtual member.`)) {
-                              void run(() => removeMember(group.id, m.userId)).then(() => reloadInviteData());
-                            }
-                          }}
-                        >
-                          Remove
-                        </button>
-                      )}
-                    </>
-                  )}
-                </li>
-              );
-            })}
+            {group.members.map((m) => (
+              <li key={m.userId} className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-gray-50">
+                <Avatar id={m.aliasId ?? m.userId} name={m.name} size={30} />
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="text-sm font-medium text-gray-700">
+                    {group.aliases.find((a) => a.id === m.aliasId)?.name ?? m.name}
+                  </span>{" "}
+                  <span className="text-xs text-gray-400">{m.email}</span>
+                </span>
+                {m.isOwner && (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                    Owner
+                  </span>
+                )}
+                {isOwner && !m.isOwner && (
+                  <button
+                    type="button"
+                    className="cursor-pointer rounded-md px-2 py-0.5 text-xs font-semibold text-gray-400 hover:bg-red-50 hover:text-red-500"
+                    disabled={busy}
+                    onClick={() => {
+                      if (window.confirm(`Remove ${m.name} from the group? Their expense history stays as a virtual member.`)) {
+                        void run(() => removeMember(group.id, m.userId)).then(() => reloadInviteData());
+                      }
+                    }}
+                  >
+                    Remove
+                  </button>
+                )}
+              </li>
+            ))}
           </ul>
         </section>
 
