@@ -1,7 +1,7 @@
 "use client";
 
 import { formatCents } from "@/lib/money";
-import type { Debt } from "@/lib/simplify";
+import { ROUNDING_WRITE_OFF_CENTS, type Debt } from "@/lib/simplify";
 import type { GroupDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
 
@@ -21,9 +21,20 @@ export function BalancesPanel({
   const names = new Map(data.aliases.map((a) => [a.id, a.name]));
   const name = (id: string) => names.get(id) ?? "?";
   const debts = simplify ? data.simplifiedDebts : data.pairwiseDebts;
+
+  // Chips are derived from the payment list on display, so they always agree
+  // with it exactly — including after tiny rounding write-offs.
+  const derivedNet = new Map<string, number>();
+  for (const d of debts) {
+    derivedNet.set(d.fromAliasId, (derivedNet.get(d.fromAliasId) ?? 0) - d.amountCents);
+    derivedNet.set(d.toAliasId, (derivedNet.get(d.toAliasId) ?? 0) + d.amountCents);
+  }
   const balances = data.aliases
-    .map((a) => ({ ...a, net: data.netBalances[a.id] ?? 0 }))
+    .map((a) => ({ ...a, net: derivedNet.get(a.id) ?? 0 }))
     .sort((a, b) => b.net - a.net);
+  const hasWriteOff = data.aliases.some(
+    (a) => (data.netBalances[a.id] ?? 0) !== (derivedNet.get(a.id) ?? 0)
+  );
 
   return (
     <div className="space-y-5">
@@ -74,6 +85,12 @@ export function BalancesPanel({
             </li>
           ))}
         </ul>
+        {hasWriteOff && (
+          <p className="mt-3 text-xs text-gray-400">
+            Rounding differences of up to {formatCents(ROUNDING_WRITE_OFF_CENTS, data.currency)}{" "}
+            are written off.
+          </p>
+        )}
       </div>
 
       <div className="card px-4 py-4">

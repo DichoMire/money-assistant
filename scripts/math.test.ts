@@ -2,7 +2,13 @@
 import { strict as assert } from "node:assert";
 import { allocateByWeights, parseAmount } from "../src/lib/money";
 import { computeShares, validatePayers } from "../src/lib/split";
-import { netBalances, pairwiseDebts, simplifiedDebts, type BalanceTransaction } from "../src/lib/simplify";
+import {
+  forgiveRounding,
+  netBalances,
+  pairwiseDebts,
+  simplifiedDebts,
+  type BalanceTransaction,
+} from "../src/lib/simplify";
 import { convertCents, findRateRow, ratesAreStale } from "../src/lib/rates";
 
 function shares(result: ReturnType<typeof computeShares>) {
@@ -111,6 +117,58 @@ const netMany = netBalances(many);
 const owedTotal = [...netMany.values()].filter((v) => v > 0).reduce((a, b) => a + b, 0);
 assert.equal(simp.reduce((t, x) => t + x.amountCents, 0), owedTotal);
 assert.ok(simp.length <= pw.length);
+
+// ---- rounding write-off ----
+let forgiven = forgiveRounding(new Map([[A, 501], [B, -1], [C, -500]]));
+assert.deepEqual([...forgiven.entries()].sort(), [[A, 500], [B, 0], [C, -500]].sort());
+
+// cascade: absorbing tiny balances can create new tiny balances
+forgiven = forgiveRounding(new Map([["p", 2], ["q", 2], ["r", 2], ["s", -3], ["t", -3]]));
+assert.ok([...forgiven.values()].every((v) => v === 0));
+
+// The screenshot scenario: $10 equal 3-way paid by G, $5 equal 3-way paid by D.
+// Raw nets: G +500, D -1, H -499 — D's phantom cent must disappear.
+const G = "g", DD = "d", H = "h";
+const screenshot: BalanceTransaction[] = [
+  {
+    payers: [{ aliasId: G, cents: 1000 }],
+    shares: [{ aliasId: DD, cents: 334 }, { aliasId: G, cents: 333 }, { aliasId: H, cents: 333 }],
+  },
+  {
+    payers: [{ aliasId: DD, cents: 500 }],
+    shares: [{ aliasId: DD, cents: 167 }, { aliasId: G, cents: 167 }, { aliasId: H, cents: 166 }],
+  },
+];
+simplified = simplifiedDebts(screenshot);
+assert.deepEqual(simplified.map((d) => [d.fromAliasId, d.toAliasId, d.amountCents]), [[H, G, 499]]);
+
+const pwScreenshot = pairwiseDebts(screenshot);
+assert.deepEqual(
+  pwScreenshot.map((d) => [d.fromAliasId, d.toAliasId, d.amountCents]).sort(),
+  [[H, G, 333], [DD, G, 166], [H, DD, 166]].sort()
+);
+// implied nets from the repaired pairwise list match the forgiven balances
+const implied = new Map<string, number>();
+for (const d of pwScreenshot) {
+  implied.set(d.fromAliasId, (implied.get(d.fromAliasId) ?? 0) - d.amountCents);
+  implied.set(d.toAliasId, (implied.get(d.toAliasId) ?? 0) + d.amountCents);
+}
+assert.equal(implied.get(G), 499);
+assert.equal(implied.get(DD) ?? 0, 0);
+assert.equal(implied.get(H), -499);
+
+// A standalone 1-cent pair debt between people with large balances is dropped.
+const tinyPair: BalanceTransaction[] = [
+  { payers: [{ aliasId: B, cents: 1 }], shares: [{ aliasId: A, cents: 1 }] },
+  { payers: [{ aliasId: A, cents: 500 }], shares: [{ aliasId: C, cents: 500 }] },
+  { payers: [{ aliasId: C, cents: 400 }], shares: [{ aliasId: B, cents: 400 }] },
+];
+debts = pairwiseDebts(tinyPair);
+assert.ok(debts.every((d) => d.amountCents > 2));
+assert.deepEqual(
+  debts.map((d) => [d.fromAliasId, d.toAliasId, d.amountCents]).sort(),
+  [[C, A, 500], [B, C, 400]].sort()
+);
 
 // ---- rates ----
 const rows = [

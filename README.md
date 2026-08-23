@@ -44,7 +44,10 @@ per-group toggle switches between "everyone pays exactly what they owe" and a
 - **Debt simplification**: min-cash-flow algorithm producing at most n−1
   payments. Balances are *computed on the fly* from the stored transactions
   (pure integer-cent math, cheap and can never go stale) — only the toggle is
-  persisted, never derived balances.
+  persisted, never derived balances. Net imbalances of up to 2 cents caused by
+  integer splitting are automatically written off (and absorbed by the largest
+  balance), so nobody is ever asked to send a 1-cent payment; a footnote in the
+  Balances panel notes when a write-off applied.
 
 ## Stack
 
