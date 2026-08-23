@@ -8,14 +8,25 @@ import type { ExpenseDto, GroupDto } from "@/lib/types";
 
 export function ExpenseList({
   data,
-  onEdit,
+  onSelect,
 }: {
   data: GroupDto;
-  onEdit: (expense: ExpenseDto) => void;
+  onSelect: (expense: ExpenseDto) => void;
 }) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const names = new Map(data.aliases.map((a) => [a.id, a.name]));
   const name = (id: string) => names.get(id) ?? "?";
+  const myAliasId = data.members.find((m) => m.userId === data.myUserId)?.aliasId ?? null;
+
+  // My net for one expense in its own currency: positive = I lent, negative =
+  // I owe, null = not involved.
+  const impactFor = (e: ExpenseDto): number | null => {
+    if (!myAliasId) return null;
+    const paid = e.payers.filter((p) => p.aliasId === myAliasId).reduce((s, p) => s + p.paidCents, 0);
+    const owed = e.shares.filter((s) => s.aliasId === myAliasId).reduce((s, x) => s + x.owedCents, 0);
+    if (paid === 0 && owed === 0) return null;
+    return paid - owed;
+  };
 
   const remove = async (expense: ExpenseDto) => {
     const label = expense.kind === "settlement" ? "payment" : "expense";
@@ -39,6 +50,9 @@ export function ExpenseList({
     <div className="card divide-y divide-gray-100">
       {data.expenses.map((e) => {
         const foreign = e.currency !== data.currency;
+        const impact = e.kind === "expense" ? impactFor(e) : null;
+        const iOwe = impact !== null && impact < 0;
+        const iLent = impact !== null && impact > 0;
         const paidLine =
           e.kind === "settlement"
             ? `${name(e.payers[0]?.aliasId ?? "")} paid ${name(e.shares[0]?.aliasId ?? "")}`
@@ -49,7 +63,7 @@ export function ExpenseList({
           <button
             key={e.id}
             type="button"
-            onClick={() => onEdit(e)}
+            onClick={() => onSelect(e)}
             className="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50"
           >
             <span className="w-14 shrink-0 text-xs leading-tight text-gray-400">
@@ -57,7 +71,13 @@ export function ExpenseList({
             </span>
             <span
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-lg ${
-                e.kind === "settlement" ? "bg-emerald-50" : "bg-gray-100"
+                e.kind === "settlement"
+                  ? "bg-emerald-50"
+                  : iOwe
+                    ? "bg-red-50"
+                    : iLent
+                      ? "bg-emerald-50"
+                      : "bg-gray-100"
               }`}
               aria-hidden
             >
@@ -69,6 +89,24 @@ export function ExpenseList({
               </span>
               <span className="block truncate text-xs text-gray-500">{paidLine}</span>
             </span>
+            {e.kind === "expense" && (
+              <span className="hidden w-24 shrink-0 text-right sm:block">
+                {impact !== null && impact !== 0 && (
+                  <>
+                    <span
+                      className={`block text-[11px] font-medium ${iOwe ? "amount-neg" : "amount-pos"}`}
+                    >
+                      {iOwe ? "you owe" : "you lent"}
+                    </span>
+                    <span
+                      className={`block text-sm font-bold ${iOwe ? "amount-neg" : "amount-pos"}`}
+                    >
+                      {formatCents(Math.abs(impact), e.currency)}
+                    </span>
+                  </>
+                )}
+              </span>
+            )}
             <span className="shrink-0 text-right">
               <span className="block text-sm font-bold text-gray-800">
                 {formatCents(e.amountCents, e.currency)}

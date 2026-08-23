@@ -5,6 +5,7 @@ import { updateGroup } from "@/app/actions";
 import type { Debt } from "@/lib/simplify";
 import type { ExpenseDto, GroupDto } from "@/lib/types";
 import { BalancesPanel } from "./BalancesPanel";
+import { ExpenseDetailModal } from "./ExpenseDetailModal";
 import { ExpenseList } from "./ExpenseList";
 import { ExpenseModal } from "./ExpenseModal";
 import { MembersModal } from "./MembersModal";
@@ -15,6 +16,7 @@ import { SettleModal } from "./SettleModal";
 type ModalState =
   | { type: "expense"; expense?: ExpenseDto }
   | { type: "settle"; settlement?: ExpenseDto; prefill?: Debt }
+  | { type: "detail"; expenseId: string }
   | { type: "members" }
   | { type: "settings" }
   | null;
@@ -94,13 +96,7 @@ export function GroupView({ data }: { data: GroupDto }) {
           <div className="lg:col-span-2">
             <ExpenseList
               data={data}
-              onEdit={(expense) =>
-                setModal(
-                  expense.kind === "settlement"
-                    ? { type: "settle", settlement: expense }
-                    : { type: "expense", expense }
-                )
-              }
+              onSelect={(expense) => setModal({ type: "detail", expenseId: expense.id })}
             />
           </div>
           <BalancesPanel
@@ -116,6 +112,27 @@ export function GroupView({ data }: { data: GroupDto }) {
       {modal?.type === "expense" && (
         <ExpenseModal group={data} expense={modal.expense} onClose={close} />
       )}
+      {modal?.type === "detail" &&
+        (() => {
+          // Always render from the freshest server data, so an edit made in
+          // another tab (or a revalidation) shows up when returning here.
+          const expense = data.expenses.find((e) => e.id === modal.expenseId);
+          if (!expense) return null;
+          return (
+            <ExpenseDetailModal
+              group={data}
+              expense={expense}
+              onClose={close}
+              onEdit={() =>
+                setModal(
+                  expense.kind === "settlement"
+                    ? { type: "settle", settlement: expense }
+                    : { type: "expense", expense }
+                )
+              }
+            />
+          );
+        })()}
       {modal?.type === "settle" && (
         <SettleModal
           group={data}

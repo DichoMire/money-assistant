@@ -55,8 +55,10 @@ export function ExpenseModal({
   const [payerMode, setPayerMode] = useState<"single" | "multi">(
     expense && expense.payers.length > 1 ? "multi" : "single"
   );
+  // New expenses default to the current user's own participant as the payer.
+  const myAliasId = group.members.find((m) => m.userId === group.myUserId)?.aliasId ?? null;
   const [singlePayer, setSinglePayer] = useState(
-    expense?.payers[0]?.aliasId ?? aliases[0]?.id ?? ""
+    expense?.payers[0]?.aliasId ?? myAliasId ?? aliases[0]?.id ?? ""
   );
   const [multiPaid, setMultiPaid] = useState<Values>(() => {
     const values: Values = {};
