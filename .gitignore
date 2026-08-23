@@ -42,3 +42,5 @@ next-env.d.ts
 
 # local dev database (PGlite)
 .pglite/
+.vercel
+.env*
