@@ -93,6 +93,11 @@ export function ActivityModal({ group, onClose }: { group: GroupDto; onClose: ()
                 <span className="min-w-0 flex-1 text-gray-600">
                   <span className="font-semibold text-gray-800">{entry.actorName}</span>{" "}
                   {describe(entry)}
+                  {Array.isArray(entry.details.changes) && entry.details.changes.length > 0 && (
+                    <span className="mt-0.5 block text-xs text-gray-400">
+                      {(entry.details.changes as unknown[]).map(String).join(" · ")}
+                    </span>
+                  )}
                 </span>
               </li>
             ))}

@@ -16,11 +16,19 @@ import {
   users,
 } from "@/db/schema";
 import { isSupportedCurrency } from "@/lib/currencies";
+import { formatDate } from "@/lib/format";
 import { getMembership, loadCircle } from "@/lib/group-data";
 import { mergeAliasReferences } from "@/lib/merge-alias";
+import { formatCents } from "@/lib/money";
 import { inviteExpiry, inviteIsUsable, joinUrl, newInviteToken } from "@/lib/invites";
 import { refreshRates } from "@/lib/rates-fetch";
-import { computeShares, validatePayers, SPLIT_METHODS } from "@/lib/split";
+import {
+  computeShares,
+  validatePayers,
+  SPLIT_METHODS,
+  SPLIT_METHOD_LABELS,
+  type SplitMethod,
+} from "@/lib/split";
 import type {
   ActionResult,
   ActivityEntryDto,
@@ -80,6 +88,76 @@ async function logActivity(
   } catch (error) {
     console.error("[activity] failed to log:", error);
   }
+}
+
+function participantSummary(ids: string[], names: Map<string, string>): string {
+  if (ids.length > 4) return `${ids.length} people`;
+  return ids.map((id) => names.get(id) ?? "?").join(", ");
+}
+
+/**
+ * Human-readable fragments describing what an expense edit changed, computed
+ * against the rows as they were before the update. Distribution-only tweaks
+ * are reported generically, and changes implied by an amount or method change
+ * are not repeated.
+ */
+function buildExpenseChanges(params: {
+  oldExpense: { description: string; amountCents: number; currency: string; date: string; splitMethod: string };
+  oldPayers: { aliasId: string; paidCents: number }[];
+  oldShares: { aliasId: string; owedCents: number }[];
+  input: ExpenseInput;
+  description: string;
+  newShares: { aliasId: string; owedCents: number }[];
+  aliasNames: Map<string, string>;
+}): string[] {
+  const { oldExpense, oldPayers, oldShares, input, description, newShares, aliasNames } = params;
+  const changes: string[] = [];
+  const amountChanged =
+    oldExpense.amountCents !== input.amountCents || oldExpense.currency !== input.currency;
+  const methodChanged = oldExpense.splitMethod !== input.splitMethod;
+
+  if (oldExpense.description !== description) {
+    changes.push(`description "${oldExpense.description}" → "${description}"`);
+  }
+  if (amountChanged) {
+    changes.push(
+      `amount ${formatCents(oldExpense.amountCents, oldExpense.currency)} → ${formatCents(input.amountCents, input.currency)}`
+    );
+  }
+  if (oldExpense.date !== input.date) {
+    changes.push(`date ${formatDate(oldExpense.date)} → ${formatDate(input.date)}`);
+  }
+  if (methodChanged) {
+    changes.push(
+      `split method ${SPLIT_METHOD_LABELS[oldExpense.splitMethod as SplitMethod]} → ${SPLIT_METHOD_LABELS[input.splitMethod]}`
+    );
+  }
+
+  const sortedIds = (ids: string[]) => [...ids].sort().join(",");
+  const payerKey = (l: { aliasId: string; paidCents: number }[]) =>
+    l.map((p) => `${p.aliasId}:${p.paidCents}`).sort().join(",");
+  const oldPayerIds = oldPayers.map((p) => p.aliasId).sort();
+  const newPayerIds = input.payers.map((p) => p.aliasId).sort();
+  if (sortedIds(oldPayerIds) !== sortedIds(newPayerIds)) {
+    changes.push(
+      `paid by ${participantSummary(oldPayerIds, aliasNames)} → ${participantSummary(newPayerIds, aliasNames)}`
+    );
+  } else if (!amountChanged && payerKey(oldPayers) !== payerKey(input.payers)) {
+    changes.push("payer amounts adjusted");
+  }
+
+  const shareKey = (l: { aliasId: string; owedCents: number }[]) =>
+    l.map((s) => `${s.aliasId}:${s.owedCents}`).sort().join(",");
+  const oldShareIds = oldShares.map((s) => s.aliasId).sort();
+  const newShareIds = newShares.map((s) => s.aliasId).sort();
+  if (sortedIds(oldShareIds) !== sortedIds(newShareIds)) {
+    changes.push(
+      `split between ${participantSummary(oldShareIds, aliasNames)} → ${participantSummary(newShareIds, aliasNames)}`
+    );
+  } else if (!amountChanged && !methodChanged && shareKey(oldShares) !== shareKey(newShares)) {
+    changes.push("split amounts adjusted");
+  }
+  return changes;
 }
 
 /** The group's audit trail, newest first (owner only). */
@@ -560,12 +638,20 @@ export async function saveExpense(input: ExpenseInput): Promise<ActionResult> {
     if (!split.ok) return { ok: false, error: split.error };
 
     let expenseId = input.id;
+    let oldExpense: typeof expenses.$inferSelect | null = null;
+    let oldPayers: { aliasId: string; paidCents: number }[] = [];
+    let oldShares: { aliasId: string; owedCents: number }[] = [];
     if (expenseId) {
       const existing = await db
-        .select({ id: expenses.id })
+        .select()
         .from(expenses)
         .where(and(eq(expenses.id, expenseId), eq(expenses.groupId, input.groupId)));
       if (!existing[0]) return { ok: false, error: "Expense not found." };
+      oldExpense = existing[0];
+      [oldPayers, oldShares] = await Promise.all([
+        db.select().from(expensePayers).where(eq(expensePayers.expenseId, expenseId)),
+        db.select().from(expenseShares).where(eq(expenseShares.expenseId, expenseId)),
+      ]);
       await db
         .update(expenses)
         .set({
@@ -607,12 +693,33 @@ export async function saveExpense(input: ExpenseInput): Promise<ActionResult> {
       }))
     );
 
-    await logActivity(db, input.groupId, user, input.id ? "expense.updated" : "expense.added", {
-      description,
-      amountCents: input.amountCents,
-      currency: input.currency,
-      date: input.date,
-    });
+    if (oldExpense) {
+      const changes = buildExpenseChanges({
+        oldExpense,
+        oldPayers,
+        oldShares,
+        input,
+        description,
+        newShares: split.shares,
+        aliasNames: new Map(groupAliases.map((a) => [a.id, a.name])),
+      });
+      if (changes.length > 0) {
+        await logActivity(db, input.groupId, user, "expense.updated", {
+          description,
+          amountCents: input.amountCents,
+          currency: input.currency,
+          date: input.date,
+          changes,
+        });
+      }
+    } else {
+      await logActivity(db, input.groupId, user, "expense.added", {
+        description,
+        amountCents: input.amountCents,
+        currency: input.currency,
+        date: input.date,
+      });
+    }
     revalidateGroup(input.groupId);
     return { ok: true, id: expenseId };
   } catch (e) {
@@ -642,12 +749,22 @@ export async function saveSettlement(input: SettlementInput): Promise<ActionResu
     }
 
     let expenseId = input.id;
+    let oldSettlement: typeof expenses.$inferSelect | null = null;
+    let oldFromId: string | null = null;
+    let oldToId: string | null = null;
     if (expenseId) {
       const existing = await db
-        .select({ id: expenses.id })
+        .select()
         .from(expenses)
         .where(and(eq(expenses.id, expenseId), eq(expenses.groupId, input.groupId)));
       if (!existing[0]) return { ok: false, error: "Payment not found." };
+      oldSettlement = existing[0];
+      const [oldPayers, oldShares] = await Promise.all([
+        db.select().from(expensePayers).where(eq(expensePayers.expenseId, expenseId)),
+        db.select().from(expenseShares).where(eq(expenseShares.expenseId, expenseId)),
+      ]);
+      oldFromId = oldPayers[0]?.aliasId ?? null;
+      oldToId = oldShares[0]?.aliasId ?? null;
       await db
         .update(expenses)
         .set({ amountCents: input.amountCents, currency: input.currency, date: input.date })
@@ -683,13 +800,36 @@ export async function saveSettlement(input: SettlementInput): Promise<ActionResu
     ]);
 
     const aliasNames = new Map(groupAliases.map((a) => [a.id, a.name]));
-    await logActivity(db, input.groupId, user, input.id ? "payment.updated" : "payment.added", {
-      fromName: aliasNames.get(input.fromAliasId) ?? "?",
-      toName: aliasNames.get(input.toAliasId) ?? "?",
+    const name = (id: string | null) => (id ? (aliasNames.get(id) ?? "?") : "?");
+    const baseDetails = {
+      fromName: name(input.fromAliasId),
+      toName: name(input.toAliasId),
       amountCents: input.amountCents,
       currency: input.currency,
       date: input.date,
-    });
+    };
+    if (oldSettlement) {
+      const changes: string[] = [];
+      if (oldFromId !== input.fromAliasId) {
+        changes.push(`payer ${name(oldFromId)} → ${name(input.fromAliasId)}`);
+      }
+      if (oldToId !== input.toAliasId) {
+        changes.push(`recipient ${name(oldToId)} → ${name(input.toAliasId)}`);
+      }
+      if (oldSettlement.amountCents !== input.amountCents || oldSettlement.currency !== input.currency) {
+        changes.push(
+          `amount ${formatCents(oldSettlement.amountCents, oldSettlement.currency)} → ${formatCents(input.amountCents, input.currency)}`
+        );
+      }
+      if (oldSettlement.date !== input.date) {
+        changes.push(`date ${formatDate(oldSettlement.date)} → ${formatDate(input.date)}`);
+      }
+      if (changes.length > 0) {
+        await logActivity(db, input.groupId, user, "payment.updated", { ...baseDetails, changes });
+      }
+    } else {
+      await logActivity(db, input.groupId, user, "payment.added", baseDetails);
+    }
     revalidateGroup(input.groupId);
     return { ok: true, id: expenseId };
   } catch (e) {
