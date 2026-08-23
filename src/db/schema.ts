@@ -124,6 +124,21 @@ export const expenseShares = pgTable(
   (t) => [primaryKey({ columns: [t.expenseId, t.aliasId] })]
 );
 
+// Owner-visible audit trail of everything that happens in a group. Names and
+// amounts are denormalized into details so entries stay readable after the
+// people or expenses they mention are deleted.
+export const activityLog = pgTable("activity_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  groupId: uuid("group_id")
+    .notNull()
+    .references(() => groups.id, { onDelete: "cascade" }),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  actorName: text("actor_name").notNull(),
+  action: text("action").notNull(),
+  details: jsonb("details").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // One row per day of ECB reference rates (base EUR), fetched by the Vercel
 // cron job. rates maps currency code -> units per 1 EUR.
 export const fxRates = pgTable("fx_rates", {

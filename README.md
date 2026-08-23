@@ -25,6 +25,11 @@ per-group toggle switches between "everyone pays exactly what they owe" and a
     virtual member to the account (People → Attach). The virtual identity and
     its whole expense history become theirs; if their account already logged
     expenses under its own name, the two histories are merged.
+  - **Audit log** (owner only): the Activity button shows who did what and
+    when — joins, leaves, removals, attaches, expenses and payments
+    added/edited/deleted, renames, setting changes, invite links. Names are
+    denormalized into each entry, so the log stays readable after the people
+    or expenses it mentions are gone.
 - **Groups** with a base currency and a *simplify debts* toggle.
 - **Bills** with description, amount, currency, date, **who paid** (one person
   or multiple people with exact amounts) and **who owes**, with five split
@@ -119,6 +124,7 @@ All env vars are listed in [.env.example](.env.example).
 | `groups`         | name, base currency, `simplify_debts` toggle, owner (`user_id`)        |
 | `group_members`  | non-owner accounts that joined a group (the owner is implicit)         |
 | `group_invites`  | shareable join links: token, status, 7-day expiry                      |
+| `activity_log`   | owner-visible audit trail: actor, action, denormalized details (jsonb) |
 | `aliases`        | the participants in a group; `user_id` links one to a real account, null = virtual member |
 | `expenses`       | bills **and** settlements (`kind`), amount in integer cents, currency, date, split method |
 | `expense_payers` | who paid how much (supports multiple payers)                           |

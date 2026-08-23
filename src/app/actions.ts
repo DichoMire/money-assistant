@@ -1,10 +1,11 @@
 "use server";
 
-import { and, eq, gt } from "drizzle-orm";
+import { and, desc, eq, gt } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { getDb, type Db } from "@/db";
 import {
+  activityLog,
   aliases,
   expensePayers,
   expenseShares,
@@ -22,6 +23,7 @@ import { refreshRates } from "@/lib/rates-fetch";
 import { computeShares, validatePayers, SPLIT_METHODS } from "@/lib/split";
 import type {
   ActionResult,
+  ActivityEntryDto,
   CircleUserDto,
   ExpenseInput,
   GroupRole,
@@ -59,6 +61,47 @@ function revalidateGroup(groupId: string) {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** Append to the group's audit trail; never lets a logging failure break the action. */
+async function logActivity(
+  db: Db,
+  groupId: string,
+  actor: SessionUser,
+  action: string,
+  details: Record<string, unknown> = {}
+) {
+  try {
+    await db.insert(activityLog).values({
+      groupId,
+      actorUserId: actor.id,
+      actorName: actor.name,
+      action,
+      details,
+    });
+  } catch (error) {
+    console.error("[activity] failed to log:", error);
+  }
+}
+
+/** The group's audit trail, newest first (owner only). */
+export async function getActivityLog(groupId: string): Promise<ActivityEntryDto[]> {
+  const user = await requireUser();
+  const db = await getDb();
+  await requireRole(db, groupId, user.id, "owner");
+  const rows = await db
+    .select()
+    .from(activityLog)
+    .where(eq(activityLog.groupId, groupId))
+    .orderBy(desc(activityLog.createdAt))
+    .limit(200);
+  return rows.map((r) => ({
+    id: r.id,
+    actorName: r.actorName,
+    action: r.action,
+    details: r.details,
+    createdAt: r.createdAt.toISOString(),
+  }));
+}
+
 // ---------- Groups ----------
 
 export async function createGroup(name: string, currency: string): Promise<ActionResult> {
@@ -74,6 +117,7 @@ export async function createGroup(name: string, currency: string): Promise<Actio
       .returning({ id: groups.id });
     // The owner participates too — give them a linked alias from the start.
     await createLinkedAlias(db, rows[0].id, user);
+    await logActivity(db, rows[0].id, user, "group.created", { name: trimmed });
     revalidatePath("/");
     return { ok: true, id: rows[0].id };
   } catch (e) {
@@ -88,7 +132,7 @@ export async function updateGroup(
   try {
     const user = await requireUser();
     const db = await getDb();
-    await requireRole(db, groupId, user.id, "owner");
+    const { group } = await requireRole(db, groupId, user.id, "owner");
     const set: Partial<typeof groups.$inferInsert> = {};
     if (patch.name !== undefined) {
       const trimmed = patch.name.trim();
@@ -102,6 +146,18 @@ export async function updateGroup(
     if (patch.simplifyDebts !== undefined) set.simplifyDebts = patch.simplifyDebts;
     if (Object.keys(set).length > 0) {
       await db.update(groups).set(set).where(eq(groups.id, groupId));
+      if (set.name !== undefined && set.name !== group.name) {
+        await logActivity(db, groupId, user, "group.renamed", { from: group.name, to: set.name });
+      }
+      if (set.currency !== undefined && set.currency !== group.currency) {
+        await logActivity(db, groupId, user, "group.currency_changed", {
+          from: group.currency,
+          to: set.currency,
+        });
+      }
+      if (set.simplifyDebts !== undefined && set.simplifyDebts !== group.simplifyDebts) {
+        await logActivity(db, groupId, user, "group.simplify_toggled", { on: set.simplifyDebts });
+      }
     }
     revalidateGroup(groupId);
     return { ok: true };
@@ -169,6 +225,7 @@ export async function addAlias(groupId: string, name: string): Promise<ActionRes
       .insert(aliases)
       .values({ groupId, name: trimmed })
       .returning({ id: aliases.id });
+    await logActivity(db, groupId, user, "alias.added", { name: trimmed });
     revalidateGroup(groupId);
     return { ok: true, id: rows[0].id };
   } catch (e) {
@@ -200,6 +257,9 @@ export async function renameAlias(aliasId: string, name: string): Promise<Action
       return { ok: false, error: "You can only rename yourself." };
     }
     await db.update(aliases).set({ name: trimmed }).where(eq(aliases.id, aliasId));
+    if (trimmed !== alias.name) {
+      await logActivity(db, alias.groupId, user, "alias.renamed", { from: alias.name, to: trimmed });
+    }
     revalidateGroup(alias.groupId);
     return { ok: true };
   } catch (e) {
@@ -226,6 +286,7 @@ export async function deleteAlias(aliasId: string): Promise<ActionResult> {
       };
     }
     await db.delete(aliases).where(eq(aliases.id, aliasId));
+    await logActivity(db, alias.groupId, user, "alias.deleted", { name: alias.name });
     revalidateGroup(alias.groupId);
     return { ok: true };
   } catch (e) {
@@ -258,6 +319,13 @@ export async function attachAlias(aliasId: string, targetUserId: string): Promis
       await db.delete(aliases).where(eq(aliases.id, existing.id));
     }
     await db.update(aliases).set({ userId: targetUserId }).where(eq(aliases.id, alias.id));
+    const targetRows = await db.select().from(users).where(eq(users.id, targetUserId));
+    await logActivity(db, alias.groupId, user, "alias.attached", {
+      aliasName: alias.name,
+      accountName: targetRows[0]?.name ?? targetRows[0]?.email ?? "?",
+      accountEmail: targetRows[0]?.email ?? "?",
+      merged: !!existing,
+    });
     revalidateGroup(alias.groupId);
     return { ok: true };
   } catch (e) {
@@ -287,6 +355,11 @@ export async function removeMember(groupId: string, targetUserId: string): Promi
       return { ok: false, error: "The owner cannot be removed." };
     }
     await detachMember(db, groupId, targetUserId);
+    const targetRows = await db.select().from(users).where(eq(users.id, targetUserId));
+    await logActivity(db, groupId, user, "member.removed", {
+      name: targetRows[0]?.name ?? targetRows[0]?.email ?? "?",
+      email: targetRows[0]?.email ?? "?",
+    });
     revalidateGroup(groupId);
     return { ok: true };
   } catch (e) {
@@ -303,6 +376,7 @@ export async function leaveGroup(groupId: string): Promise<ActionResult> {
       return { ok: false, error: "The owner cannot leave their own group. Delete it instead." };
     }
     await detachMember(db, groupId, user.id);
+    await logActivity(db, groupId, user, "member.left", { email: user.email });
     revalidatePath("/");
     return { ok: true };
   } catch (e) {
@@ -340,6 +414,11 @@ export async function addCircleMember(groupId: string, targetUserId: string): Pr
       id: target.id,
       email: target.email,
       name: target.name ?? target.email,
+    });
+    await logActivity(db, groupId, user, "member.joined", {
+      name: target.name ?? target.email,
+      email: target.email,
+      via: "circle",
     });
     revalidateGroup(groupId);
     return { ok: true };
@@ -394,6 +473,9 @@ export async function createInviteLink(groupId: string): Promise<InviteLinkDto> 
     .insert(groupInvites)
     .values({ groupId, token: newInviteToken(), createdBy: user.id, expiresAt: inviteExpiry() })
     .returning();
+  await logActivity(db, groupId, user, "invite.created", {
+    expiresAt: rows[0].expiresAt.toISOString().slice(0, 10),
+  });
   return toLinkDto(rows[0]);
 }
 
@@ -406,6 +488,7 @@ export async function revokeInvite(inviteId: string): Promise<ActionResult> {
     if (!invite) return { ok: false, error: "Invite not found." };
     await requireRole(db, invite.groupId, user.id, "owner");
     await db.update(groupInvites).set({ status: "revoked" }).where(eq(groupInvites.id, inviteId));
+    await logActivity(db, invite.groupId, user, "invite.revoked", {});
     revalidateGroup(invite.groupId);
     return { ok: true };
   } catch (e) {
@@ -428,6 +511,11 @@ export async function acceptInvite(token: string): Promise<ActionResult> {
     }
 
     await joinGroup(db, invite.groupId, user);
+    await logActivity(db, invite.groupId, user, "member.joined", {
+      name: user.name,
+      email: user.email,
+      via: "link",
+    });
     revalidateGroup(invite.groupId);
     return { ok: true, id: invite.groupId };
   } catch (e) {
@@ -519,6 +607,12 @@ export async function saveExpense(input: ExpenseInput): Promise<ActionResult> {
       }))
     );
 
+    await logActivity(db, input.groupId, user, input.id ? "expense.updated" : "expense.added", {
+      description,
+      amountCents: input.amountCents,
+      currency: input.currency,
+      date: input.date,
+    });
     revalidateGroup(input.groupId);
     return { ok: true, id: expenseId };
   } catch (e) {
@@ -588,6 +682,14 @@ export async function saveSettlement(input: SettlementInput): Promise<ActionResu
       },
     ]);
 
+    const aliasNames = new Map(groupAliases.map((a) => [a.id, a.name]));
+    await logActivity(db, input.groupId, user, input.id ? "payment.updated" : "payment.added", {
+      fromName: aliasNames.get(input.fromAliasId) ?? "?",
+      toName: aliasNames.get(input.toAliasId) ?? "?",
+      amountCents: input.amountCents,
+      currency: input.currency,
+      date: input.date,
+    });
     revalidateGroup(input.groupId);
     return { ok: true, id: expenseId };
   } catch (e) {
@@ -603,9 +705,46 @@ export async function deleteExpense(expenseId: string): Promise<ActionResult> {
     const expense = rows[0];
     if (!expense) return { ok: false, error: "Expense not found." };
     await requireRole(db, expense.groupId, user.id, "member");
+
+    // Capture the participants for the log before their rows disappear.
+    let logDetails: Record<string, unknown>;
+    if (expense.kind === "settlement") {
+      const [payerRows, shareRows] = await Promise.all([
+        db
+          .select({ name: aliases.name })
+          .from(expensePayers)
+          .innerJoin(aliases, eq(expensePayers.aliasId, aliases.id))
+          .where(eq(expensePayers.expenseId, expenseId)),
+        db
+          .select({ name: aliases.name })
+          .from(expenseShares)
+          .innerJoin(aliases, eq(expenseShares.aliasId, aliases.id))
+          .where(eq(expenseShares.expenseId, expenseId)),
+      ]);
+      logDetails = {
+        fromName: payerRows[0]?.name ?? "?",
+        toName: shareRows[0]?.name ?? "?",
+        amountCents: expense.amountCents,
+        currency: expense.currency,
+      };
+    } else {
+      logDetails = {
+        description: expense.description,
+        amountCents: expense.amountCents,
+        currency: expense.currency,
+      };
+    }
+
     await db.delete(expensePayers).where(eq(expensePayers.expenseId, expenseId));
     await db.delete(expenseShares).where(eq(expenseShares.expenseId, expenseId));
     await db.delete(expenses).where(eq(expenses.id, expenseId));
+    await logActivity(
+      db,
+      expense.groupId,
+      user,
+      expense.kind === "settlement" ? "payment.deleted" : "expense.deleted",
+      logDetails
+    );
     revalidateGroup(expense.groupId);
     return { ok: true };
   } catch (e) {

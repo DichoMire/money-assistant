@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { updateGroup } from "@/app/actions";
 import type { Debt } from "@/lib/simplify";
 import type { ExpenseDto, GroupDto } from "@/lib/types";
+import { ActivityModal } from "./ActivityModal";
 import { BalancesPanel } from "./BalancesPanel";
 import { ExpenseDetailModal } from "./ExpenseDetailModal";
 import { ExpenseList } from "./ExpenseList";
@@ -19,6 +20,7 @@ type ModalState =
   | { type: "detail"; expenseId: string }
   | { type: "members" }
   | { type: "settings" }
+  | { type: "activity" }
   | null;
 
 export function GroupView({ data }: { data: GroupDto }) {
@@ -70,9 +72,14 @@ export function GroupView({ data }: { data: GroupDto }) {
             People
           </button>
           {isOwner && (
-            <button type="button" className="btn btn-secondary" onClick={() => setModal({ type: "settings" })}>
-              Settings
-            </button>
+            <>
+              <button type="button" className="btn btn-secondary" onClick={() => setModal({ type: "activity" })}>
+                Activity
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={() => setModal({ type: "settings" })}>
+                Settings
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -143,6 +150,7 @@ export function GroupView({ data }: { data: GroupDto }) {
       )}
       {modal?.type === "members" && <MembersModal group={data} onClose={close} />}
       {modal?.type === "settings" && <SettingsModal group={data} onClose={close} />}
+      {modal?.type === "activity" && <ActivityModal group={data} onClose={close} />}
 
       <RateWarningModal group={data} />
     </div>
