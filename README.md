@@ -25,11 +25,11 @@ per-group toggle switches between "everyone pays exactly what they owe" and a
     virtual member to the account (People → Attach). The virtual identity and
     its whole expense history become theirs; if their account already logged
     expenses under its own name, the two histories are merged.
-  - **Audit log** (owner only): the Activity button shows who did what and
+  - **Audit log**: the Activity button shows every member who did what and
     when — joins, leaves, removals, attaches, expenses and payments
-    added/edited/deleted, renames, setting changes, invite links. Names are
-    denormalized into each entry, so the log stays readable after the people
-    or expenses it mentions are gone.
+    added/edited/deleted (with field-level diffs on edits), renames, setting
+    changes, invite links. Names are denormalized into each entry, so the log
+    stays readable after the people or expenses it mentions are gone.
 - **Groups** with a base currency and a *simplify debts* toggle.
 - **Bills** with description, amount, currency, date, **who paid** (one person
   or multiple people with exact amounts) and **who owes**, with five split

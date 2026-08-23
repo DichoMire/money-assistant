@@ -71,15 +71,13 @@ export function GroupView({ data }: { data: GroupDto }) {
           <button type="button" className="btn btn-secondary" onClick={() => setModal({ type: "members" })}>
             People
           </button>
+          <button type="button" className="btn btn-secondary" onClick={() => setModal({ type: "activity" })}>
+            Activity
+          </button>
           {isOwner && (
-            <>
-              <button type="button" className="btn btn-secondary" onClick={() => setModal({ type: "activity" })}>
-                Activity
-              </button>
-              <button type="button" className="btn btn-secondary" onClick={() => setModal({ type: "settings" })}>
-                Settings
-              </button>
-            </>
+            <button type="button" className="btn btn-secondary" onClick={() => setModal({ type: "settings" })}>
+              Settings
+            </button>
           )}
         </div>
       </div>

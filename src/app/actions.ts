@@ -160,11 +160,11 @@ function buildExpenseChanges(params: {
   return changes;
 }
 
-/** The group's audit trail, newest first (owner only). */
+/** The group's audit trail, newest first (visible to every member). */
 export async function getActivityLog(groupId: string): Promise<ActivityEntryDto[]> {
   const user = await requireUser();
   const db = await getDb();
-  await requireRole(db, groupId, user.id, "owner");
+  await requireRole(db, groupId, user.id, "member");
   const rows = await db
     .select()
     .from(activityLog)
