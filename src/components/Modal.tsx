@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
+import { useT } from "./LocaleProvider";
 
 export function Modal({
   title,
@@ -13,6 +14,7 @@ export function Modal({
   children: ReactNode;
   wide?: boolean;
 }) {
+  const t = useT();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -46,7 +48,7 @@ export function Modal({
             type="button"
             onClick={onClose}
             className="cursor-pointer rounded-md px-2 py-0.5 text-xl leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-            aria-label="Close"
+            aria-label={t("common.close")}
           >
             &times;
           </button>

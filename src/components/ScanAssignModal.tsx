@@ -4,6 +4,7 @@ import { useState } from "react";
 import { allocateByWeights, formatCents, parseAmount } from "@/lib/money";
 import type { AliasDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
+import { useT } from "./LocaleProvider";
 import { Modal } from "./Modal";
 
 type Values = Record<string, string>;
@@ -33,6 +34,7 @@ export function ScanAssignModal({
   onDone: (mode: "equal" | "exact", selectedIds: string[], exactVals: Values) => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const [mode, setMode] = useState<"equal" | "exact">(initialMode);
   const [selected, setSelected] = useState<Record<string, boolean>>(() => {
     const sel: Record<string, boolean> = {};
@@ -75,13 +77,13 @@ export function ScanAssignModal({
   };
 
   return (
-    <Modal title={`Split "${itemName}"`} onClose={onClose}>
+    <Modal title={t("assign.title", { name: itemName })} onClose={onClose}>
       <div className="space-y-3">
         <div className="flex gap-1">
           {(
             [
-              { key: "equal", label: "Equally" },
-              { key: "exact", label: "Exact amounts" },
+              { key: "equal", label: t("assign.equally") },
+              { key: "exact", label: t("assign.exactAmounts") },
             ] as const
           ).map((tab) => (
             <button
@@ -100,9 +102,7 @@ export function ScanAssignModal({
           ))}
         </div>
         <p className="text-center text-xs text-gray-500">
-          {mode === "equal"
-            ? "Selected people share this item equally."
-            : "Enter exactly how much of this item each person owes."}
+          {mode === "equal" ? t("assign.equalHint") : t("assign.exactHint")}
         </p>
 
         <div className="max-h-64 space-y-1 overflow-y-auto">
@@ -148,23 +148,26 @@ export function ScanAssignModal({
 
         <div className="border-t border-gray-100 px-2 pt-3">
           {selectedIds.length === 0 ? (
-            <p className="text-sm font-semibold text-red-600">Select at least one person.</p>
+            <p className="text-sm font-semibold text-red-600">{t("split.selectAtLeastOne")}</p>
           ) : mode === "exact" && itemTotalCents !== null ? (
             <p className={`text-sm font-semibold ${exactOk ? "text-gray-500" : "text-red-600"}`}>
-              {formatCents(exactEntered, currency)} of {formatCents(itemTotalCents, currency)}{" "}
-              entered — {formatCents(itemTotalCents - exactEntered, currency)} left
+              {t("split.enteredLeft", {
+                entered: formatCents(exactEntered, currency),
+                total: formatCents(itemTotalCents, currency),
+                left: formatCents(itemTotalCents - exactEntered, currency),
+              })}
             </p>
           ) : mode === "exact" ? (
-            <p className="text-sm font-semibold text-red-600">Enter a valid item price first.</p>
+            <p className="text-sm font-semibold text-red-600">{t("assign.enterValidPrice")}</p>
           ) : null}
         </div>
 
         <div className="flex justify-end gap-2 border-t border-gray-100 pt-3">
           <button type="button" className="btn btn-secondary" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </button>
           <button type="button" className="btn btn-primary" onClick={done} disabled={doneDisabled}>
-            Done
+            {t("common.done")}
           </button>
         </div>
       </div>

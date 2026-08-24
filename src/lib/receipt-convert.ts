@@ -1,3 +1,4 @@
+import { enT, type TFunc } from "./i18n";
 import { allocateByWeights, formatCents } from "./money";
 import type { ExpenseInput } from "./types";
 
@@ -37,16 +38,21 @@ export function computePersonTotals(
   items: ConvertItem[],
   pool: { taxCents: number; tipCents: number; discountsCents: number },
   currency: string,
-  aliasNames?: Map<string, string>
+  aliasNames?: Map<string, string>,
+  t: TFunc = enT
 ): ConvertResult {
-  const nameOf = (aliasId: string) => aliasNames?.get(aliasId) ?? "someone";
+  const nameOf = (aliasId: string) => aliasNames?.get(aliasId) ?? t("convert.someone");
   // Zero-priced unassigned lines are harmless; anything with a value must be assigned.
   const unassigned = items.filter((it) => it.assignMode === "unassigned" && it.totalCents !== 0);
   if (unassigned.length > 0) {
     const cents = unassigned.reduce((sum, it) => sum + it.totalCents, 0);
+    const amount = formatCents(cents, currency);
     return {
       ok: false,
-      error: `${unassigned.length} item${unassigned.length === 1 ? " is" : "s are"} not assigned yet (${formatCents(cents, currency)}).`,
+      error:
+        unassigned.length === 1
+          ? t("convert.unassignedOne", { amount })
+          : t("convert.unassignedMany", { count: unassigned.length, amount }),
     };
   }
 
@@ -59,11 +65,11 @@ export function computePersonTotals(
     if (item.assignMode === "unassigned") continue; // zero-priced, per the gate above
     itemsSum += item.totalCents;
     if (item.shares.length === 0) {
-      return { ok: false, error: `"${item.name}" has no people assigned.` };
+      return { ok: false, error: t("convert.noPeople", { name: item.name }) };
     }
     if (item.assignMode === "single") {
       if (item.shares.length !== 1) {
-        return { ok: false, error: `"${item.name}" has an invalid assignment.` };
+        return { ok: false, error: t("convert.invalidAssignment", { name: item.name }) };
       }
       add(item.shares[0].aliasId, item.totalCents);
     } else if (item.assignMode === "equal") {
@@ -73,21 +79,25 @@ export function computePersonTotals(
       let sum = 0;
       for (const s of item.shares) {
         if (s.exactCents === null || !Number.isInteger(s.exactCents)) {
-          return { ok: false, error: `Enter an amount for everyone splitting "${item.name}".` };
+          return { ok: false, error: t("convert.enterAmountForAll", { name: item.name }) };
         }
         sum += s.exactCents;
       }
       if (sum !== item.totalCents) {
         return {
           ok: false,
-          error: `Amounts for "${item.name}" add up to ${formatCents(sum, currency)}, but the item costs ${formatCents(item.totalCents, currency)}.`,
+          error: t("convert.itemAmountsSum", {
+            name: item.name,
+            sum: formatCents(sum, currency),
+            total: formatCents(item.totalCents, currency),
+          }),
         };
       }
       for (const s of item.shares) add(s.aliasId, s.exactCents!);
     }
   }
 
-  if (itemCents.size === 0) return { ok: false, error: "Add and assign at least one item." };
+  if (itemCents.size === 0) return { ok: false, error: t("convert.addAssignOne") };
 
   // Tax, tip and receipt-level discounts are distributed pro-rata by each
   // person's item subtotal (largest-remainder, so cents sum exactly). When
@@ -112,13 +122,13 @@ export function computePersonTotals(
   if (negative) {
     return {
       ok: false,
-      error: `${nameOf(negative.aliasId)}'s share would be negative — reassign the discount lines.`,
+      error: t("convert.negativeShare", { name: nameOf(negative.aliasId) }),
     };
   }
 
   const grandTotalCents = itemsSum + poolTotal;
   if (grandTotalCents <= 0) {
-    return { ok: false, error: "The receipt total must be greater than zero." };
+    return { ok: false, error: t("convert.totalGreaterZero") };
   }
   return { ok: true, persons, grandTotalCents };
 }
@@ -132,11 +142,13 @@ export function buildExpenseInput(args: {
   payerAliasId: string;
   persons: PersonTotal[];
   grandTotalCents: number;
+  /** Description when the receipt has no merchant (localized by the caller). */
+  fallbackDescription?: string;
 }): ExpenseInput {
   return {
     id: args.existingExpenseId,
     groupId: args.groupId,
-    description: args.merchant?.trim() || "Scanned receipt",
+    description: args.merchant?.trim() || args.fallbackDescription || "Scanned receipt",
     amountCents: args.grandTotalCents,
     currency: args.currency,
     date: args.date,

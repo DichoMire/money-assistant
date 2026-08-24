@@ -25,6 +25,7 @@ import {
 } from "@/lib/action-helpers";
 import { isSupportedCurrency } from "@/lib/currencies";
 import { formatDate } from "@/lib/format";
+import { getT } from "@/lib/i18n-server";
 import { getMembership, loadCircle } from "@/lib/group-data";
 import { mergeAliasReferences } from "@/lib/merge-alias";
 import { formatCents } from "@/lib/money";
@@ -140,10 +141,11 @@ export async function getActivityLog(groupId: string): Promise<ActivityEntryDto[
 
 export async function createGroup(name: string, currency: string): Promise<ActionResult> {
   try {
+    const t = await getT();
     const user = await requireUser();
     const trimmed = name.trim();
-    if (!trimmed) return { ok: false, error: "Group name is required." };
-    if (!isSupportedCurrency(currency)) return { ok: false, error: "Unsupported currency." };
+    if (!trimmed) return { ok: false, error: t("errors.groupNameRequired") };
+    if (!isSupportedCurrency(currency)) return { ok: false, error: t("errors.unsupportedCurrency") };
     const db = await getDb();
     const rows = await db
       .insert(groups)
@@ -164,17 +166,18 @@ export async function updateGroup(
   patch: { name?: string; currency?: string; simplifyDebts?: boolean }
 ): Promise<ActionResult> {
   try {
+    const t = await getT();
     const user = await requireUser();
     const db = await getDb();
     const { group } = await requireRole(db, groupId, user.id, "owner");
     const set: Partial<typeof groups.$inferInsert> = {};
     if (patch.name !== undefined) {
       const trimmed = patch.name.trim();
-      if (!trimmed) return { ok: false, error: "Group name is required." };
+      if (!trimmed) return { ok: false, error: t("errors.groupNameRequired") };
       set.name = trimmed;
     }
     if (patch.currency !== undefined) {
-      if (!isSupportedCurrency(patch.currency)) return { ok: false, error: "Unsupported currency." };
+      if (!isSupportedCurrency(patch.currency)) return { ok: false, error: t("errors.unsupportedCurrency") };
       set.currency = patch.currency;
     }
     if (patch.simplifyDebts !== undefined) set.simplifyDebts = patch.simplifyDebts;
@@ -246,14 +249,15 @@ async function createLinkedAlias(
 
 export async function addAlias(groupId: string, name: string): Promise<ActionResult> {
   try {
+    const t = await getT();
     const user = await requireUser();
     const trimmed = name.trim();
-    if (!trimmed) return { ok: false, error: "Name is required." };
+    if (!trimmed) return { ok: false, error: t("errors.nameRequired") };
     const db = await getDb();
     await requireRole(db, groupId, user.id, "owner");
     const existing = await db.select().from(aliases).where(eq(aliases.groupId, groupId));
     if (existing.some((a) => a.name.toLowerCase() === trimmed.toLowerCase())) {
-      return { ok: false, error: `"${trimmed}" is already in this group.` };
+      return { ok: false, error: t("errors.alreadyInGroup", { name: trimmed }) };
     }
     const rows = await db
       .insert(aliases)
@@ -270,25 +274,26 @@ export async function addAlias(groupId: string, name: string): Promise<ActionRes
 async function requireAliasInOwnedGroup(db: Db, aliasId: string, userId: string) {
   const rows = await db.select().from(aliases).where(eq(aliases.id, aliasId));
   const alias = rows[0];
-  if (!alias) throw new Error("Person not found.");
+  if (!alias) throw new Error((await getT())("errors.personNotFound"));
   await requireRole(db, alias.groupId, userId, "owner");
   return alias;
 }
 
 export async function renameAlias(aliasId: string, name: string): Promise<ActionResult> {
   try {
+    const t = await getT();
     const user = await requireUser();
     const trimmed = name.trim();
-    if (!trimmed) return { ok: false, error: "Name is required." };
+    if (!trimmed) return { ok: false, error: t("errors.nameRequired") };
     const db = await getDb();
     const rows = await db.select().from(aliases).where(eq(aliases.id, aliasId));
     const alias = rows[0];
-    if (!alias) return { ok: false, error: "Person not found." };
+    if (!alias) return { ok: false, error: t("errors.personNotFound") };
     // The owner renames anyone in their group; a member renames only the
     // participant linked to their own account.
     const { role } = await requireRole(db, alias.groupId, user.id, "member");
     if (role !== "owner" && alias.userId !== user.id) {
-      return { ok: false, error: "You can only rename yourself." };
+      return { ok: false, error: t("errors.onlyRenameSelf") };
     }
     await db.update(aliases).set({ name: trimmed }).where(eq(aliases.id, aliasId));
     if (trimmed !== alias.name) {
@@ -305,9 +310,10 @@ export async function deleteAlias(aliasId: string): Promise<ActionResult> {
   try {
     const user = await requireUser();
     const db = await getDb();
+    const t = await getT();
     const alias = await requireAliasInOwnedGroup(db, aliasId, user.id);
     if (alias.userId) {
-      return { ok: false, error: "This person is a group member. Remove the member instead." };
+      return { ok: false, error: t("errors.personIsMember") };
     }
     const [paid, owed] = await Promise.all([
       db.select({ id: expensePayers.expenseId }).from(expensePayers).where(eq(expensePayers.aliasId, aliasId)).limit(1),
@@ -316,7 +322,7 @@ export async function deleteAlias(aliasId: string): Promise<ActionResult> {
     if (paid.length > 0 || owed.length > 0) {
       return {
         ok: false,
-        error: `${alias.name} is part of existing expenses. Delete or edit those expenses first.`,
+        error: t("errors.personInExpenses", { name: alias.name }),
       };
     }
     await db.delete(aliases).where(eq(aliases.id, aliasId));
@@ -338,13 +344,14 @@ export async function attachAlias(aliasId: string, targetUserId: string): Promis
   try {
     const user = await requireUser();
     const db = await getDb();
+    const t = await getT();
     const alias = await requireAliasInOwnedGroup(db, aliasId, user.id);
     if (alias.userId) {
-      return { ok: false, error: "This person is already linked to an account." };
+      return { ok: false, error: t("errors.alreadyLinked") };
     }
     const membership = await getMembership(db, alias.groupId, targetUserId);
     if (!membership) {
-      return { ok: false, error: "That account is not a member of this group." };
+      return { ok: false, error: t("errors.notAMember") };
     }
     const groupAliases = await db.select().from(aliases).where(eq(aliases.groupId, alias.groupId));
     const existing = groupAliases.find((a) => a.userId === targetUserId);
@@ -386,7 +393,7 @@ export async function removeMember(groupId: string, targetUserId: string): Promi
     const db = await getDb();
     const { group } = await requireRole(db, groupId, user.id, "owner");
     if (targetUserId === group.userId) {
-      return { ok: false, error: "The owner cannot be removed." };
+      return { ok: false, error: (await getT())("errors.ownerCannotBeRemoved") };
     }
     await detachMember(db, groupId, targetUserId);
     const targetRows = await db.select().from(users).where(eq(users.id, targetUserId));
@@ -407,7 +414,7 @@ export async function leaveGroup(groupId: string): Promise<ActionResult> {
     const db = await getDb();
     const { role } = await requireRole(db, groupId, user.id, "member");
     if (role === "owner") {
-      return { ok: false, error: "The owner cannot leave their own group. Delete it instead." };
+      return { ok: false, error: (await getT())("errors.ownerCannotLeave") };
     }
     await detachMember(db, groupId, user.id);
     await logActivity(db, groupId, user, "member.left", { email: user.email });
@@ -436,14 +443,15 @@ export async function addCircleMember(groupId: string, targetUserId: string): Pr
   try {
     const user = await requireUser();
     const db = await getDb();
+    const t = await getT();
     await requireRole(db, groupId, user.id, "owner");
     const circle = await loadCircle(user.id);
     if (!circle.some((c) => c.userId === targetUserId)) {
-      return { ok: false, error: "You can only add people you already share a group with." };
+      return { ok: false, error: t("errors.onlyAddCircle") };
     }
     const targetRows = await db.select().from(users).where(eq(users.id, targetUserId));
     const target = targetRows[0];
-    if (!target) return { ok: false, error: "Account not found." };
+    if (!target) return { ok: false, error: t("errors.accountNotFound") };
     await joinGroup(db, groupId, {
       id: target.id,
       email: target.email,
@@ -519,7 +527,7 @@ export async function revokeInvite(inviteId: string): Promise<ActionResult> {
     const db = await getDb();
     const rows = await db.select().from(groupInvites).where(eq(groupInvites.id, inviteId));
     const invite = rows[0];
-    if (!invite) return { ok: false, error: "Invite not found." };
+    if (!invite) return { ok: false, error: (await getT())("errors.inviteNotFound") };
     await requireRole(db, invite.groupId, user.id, "owner");
     await db.update(groupInvites).set({ status: "revoked" }).where(eq(groupInvites.id, inviteId));
     await logActivity(db, invite.groupId, user, "invite.revoked", {});
@@ -534,14 +542,15 @@ export async function acceptInvite(token: string): Promise<ActionResult> {
   try {
     const user = await requireUser();
     const db = await getDb();
+    const t = await getT();
     const rows = await db.select().from(groupInvites).where(eq(groupInvites.token, token));
     const invite = rows[0];
-    if (!invite) return { ok: false, error: "This invite link is not valid." };
+    if (!invite) return { ok: false, error: t("errors.inviteInvalid") };
 
     const membership = await getMembership(db, invite.groupId, user.id);
     if (membership) return { ok: true, id: invite.groupId };
     if (!inviteIsUsable(invite)) {
-      return { ok: false, error: "This invite has expired. Ask for a new one." };
+      return { ok: false, error: t("errors.inviteExpired") };
     }
 
     await joinGroup(db, invite.groupId, user);
@@ -561,18 +570,19 @@ export async function acceptInvite(token: string): Promise<ActionResult> {
 
 export async function saveExpense(input: ExpenseInput): Promise<ActionResult> {
   try {
+    const t = await getT();
     const user = await requireUser();
     const db = await getDb();
     await requireRole(db, input.groupId, user.id, "member");
 
     const description = input.description.trim();
-    if (!description) return { ok: false, error: "Description is required." };
+    if (!description) return { ok: false, error: t("errors.descriptionRequired") };
     if (!Number.isInteger(input.amountCents) || input.amountCents <= 0) {
-      return { ok: false, error: "Amount must be greater than zero." };
+      return { ok: false, error: t("splitError.amountGreaterZero") };
     }
-    if (!isSupportedCurrency(input.currency)) return { ok: false, error: "Unsupported currency." };
-    if (!DATE_RE.test(input.date)) return { ok: false, error: "Invalid date." };
-    if (!SPLIT_METHODS.includes(input.splitMethod)) return { ok: false, error: "Invalid split method." };
+    if (!isSupportedCurrency(input.currency)) return { ok: false, error: t("errors.unsupportedCurrency") };
+    if (!DATE_RE.test(input.date)) return { ok: false, error: t("errors.invalidDate") };
+    if (!SPLIT_METHODS.includes(input.splitMethod)) return { ok: false, error: t("errors.invalidSplitMethod") };
 
     const groupAliases = await db.select().from(aliases).where(eq(aliases.groupId, input.groupId));
     const aliasIds = new Set(groupAliases.map((a) => a.id));
@@ -584,13 +594,13 @@ export async function saveExpense(input: ExpenseInput): Promise<ActionResult> {
       new Set(payerIds).size !== payerIds.length ||
       new Set(splitIds).size !== splitIds.length
     ) {
-      return { ok: false, error: "Invalid participants." };
+      return { ok: false, error: t("errors.invalidParticipants") };
     }
 
-    const payerError = validatePayers(input.amountCents, input.payers, input.currency);
+    const payerError = validatePayers(input.amountCents, input.payers, input.currency, t);
     if (payerError) return { ok: false, error: payerError };
 
-    const split = computeShares(input.splitMethod, input.amountCents, input.splits, input.currency);
+    const split = computeShares(input.splitMethod, input.amountCents, input.splits, input.currency, t);
     if (!split.ok) return { ok: false, error: split.error };
 
     let expenseId = input.id;
@@ -602,7 +612,7 @@ export async function saveExpense(input: ExpenseInput): Promise<ActionResult> {
         .select()
         .from(expenses)
         .where(and(eq(expenses.id, expenseId), eq(expenses.groupId, input.groupId)));
-      if (!existing[0]) return { ok: false, error: "Expense not found." };
+      if (!existing[0]) return { ok: false, error: t("errors.expenseNotFound") };
       oldExpense = existing[0];
       [oldPayers, oldShares] = await Promise.all([
         db.select().from(expensePayers).where(eq(expensePayers.expenseId, expenseId)),
@@ -685,23 +695,24 @@ export async function saveExpense(input: ExpenseInput): Promise<ActionResult> {
 
 export async function saveSettlement(input: SettlementInput): Promise<ActionResult> {
   try {
+    const t = await getT();
     const user = await requireUser();
     const db = await getDb();
     await requireRole(db, input.groupId, user.id, "member");
 
     if (input.fromAliasId === input.toAliasId) {
-      return { ok: false, error: "Payer and recipient must be different people." };
+      return { ok: false, error: t("settle.differentPeople") };
     }
     if (!Number.isInteger(input.amountCents) || input.amountCents <= 0) {
-      return { ok: false, error: "Amount must be greater than zero." };
+      return { ok: false, error: t("splitError.amountGreaterZero") };
     }
-    if (!isSupportedCurrency(input.currency)) return { ok: false, error: "Unsupported currency." };
-    if (!DATE_RE.test(input.date)) return { ok: false, error: "Invalid date." };
+    if (!isSupportedCurrency(input.currency)) return { ok: false, error: t("errors.unsupportedCurrency") };
+    if (!DATE_RE.test(input.date)) return { ok: false, error: t("errors.invalidDate") };
 
     const groupAliases = await db.select().from(aliases).where(eq(aliases.groupId, input.groupId));
     const aliasIds = new Set(groupAliases.map((a) => a.id));
     if (!aliasIds.has(input.fromAliasId) || !aliasIds.has(input.toAliasId)) {
-      return { ok: false, error: "Invalid participants." };
+      return { ok: false, error: t("errors.invalidParticipants") };
     }
 
     let expenseId = input.id;
@@ -713,7 +724,7 @@ export async function saveSettlement(input: SettlementInput): Promise<ActionResu
         .select()
         .from(expenses)
         .where(and(eq(expenses.id, expenseId), eq(expenses.groupId, input.groupId)));
-      if (!existing[0]) return { ok: false, error: "Payment not found." };
+      if (!existing[0]) return { ok: false, error: t("errors.paymentNotFound") };
       oldSettlement = existing[0];
       const [oldPayers, oldShares] = await Promise.all([
         db.select().from(expensePayers).where(eq(expensePayers.expenseId, expenseId)),
@@ -799,7 +810,7 @@ export async function deleteExpense(expenseId: string): Promise<ActionResult> {
     const db = await getDb();
     const rows = await db.select().from(expenses).where(eq(expenses.id, expenseId));
     const expense = rows[0];
-    if (!expense) return { ok: false, error: "Expense not found." };
+    if (!expense) return { ok: false, error: (await getT())("errors.expenseNotFound") };
     await requireRole(db, expense.groupId, user.id, "member");
 
     // Capture the participants for the log before their rows disappear.

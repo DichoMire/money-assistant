@@ -4,10 +4,12 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createGroup } from "@/app/actions";
 import { CURRENCIES } from "@/lib/currencies";
+import { useT } from "./LocaleProvider";
 import { Modal } from "./Modal";
 
 export function NewGroupForm() {
   const router = useRouter();
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [currency, setCurrency] = useState("USD");
@@ -31,10 +33,10 @@ export function NewGroupForm() {
   return (
     <>
       <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
-        + New group
+        {t("newGroup.button")}
       </button>
       {open && (
-        <Modal title="Create a group" onClose={() => setOpen(false)}>
+        <Modal title={t("newGroup.title")} onClose={() => setOpen(false)}>
           <form
             className="space-y-4"
             onSubmit={(e) => {
@@ -44,21 +46,21 @@ export function NewGroupForm() {
           >
             <div>
               <label className="label" htmlFor="group-name">
-                Group name
+                {t("newGroup.name")}
               </label>
               <input
                 id="group-name"
                 className="input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Trip to Lisbon"
+                placeholder={t("newGroup.namePlaceholder")}
                 autoFocus
                 required
               />
             </div>
             <div>
               <label className="label" htmlFor="group-currency">
-                Currency
+                {t("newGroup.currency")}
               </label>
               <select
                 id="group-currency"
@@ -76,10 +78,10 @@ export function NewGroupForm() {
             {error && <p className="text-sm text-red-600">{error}</p>}
             <div className="flex justify-end gap-2">
               <button type="button" className="btn btn-secondary" onClick={() => setOpen(false)}>
-                Cancel
+                {t("common.cancel")}
               </button>
               <button type="submit" className="btn btn-primary" disabled={busy || !name.trim()}>
-                {busy ? "Creating…" : "Create group"}
+                {busy ? t("newGroup.creating") : t("newGroup.create")}
               </button>
             </div>
           </form>

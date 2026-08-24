@@ -4,6 +4,7 @@ import { formatCents } from "@/lib/money";
 import { ROUNDING_WRITE_OFF_CENTS, type Debt } from "@/lib/simplify";
 import type { GroupDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
+import { useT } from "./LocaleProvider";
 
 export function BalancesPanel({
   data,
@@ -18,6 +19,7 @@ export function BalancesPanel({
   onToggleSimplify: (value: boolean) => void;
   onSettle: (debt: Debt) => void;
 }) {
+  const t = useT();
   const names = new Map(data.aliases.map((a) => [a.id, a.name]));
   const name = (id: string) => names.get(id) ?? "?";
   const debts = simplify ? data.simplifiedDebts : data.pairwiseDebts;
@@ -40,12 +42,12 @@ export function BalancesPanel({
     <div className="space-y-5">
       <div className="card px-4 py-4">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-bold text-gray-800">Balances</h2>
+          <h2 className="font-bold text-gray-800">{t("balances.title")}</h2>
           <label
             className={`flex items-center gap-2 text-xs font-semibold text-gray-500 ${canToggle ? "cursor-pointer" : "opacity-60"}`}
-            title={canToggle ? undefined : "Only the group owner can change this"}
+            title={canToggle ? undefined : t("balances.onlyOwner")}
           >
-            Simplify debts
+            {t("balances.simplifyDebts")}
             <span
               role="switch"
               aria-checked={simplify}
@@ -75,10 +77,10 @@ export function BalancesPanel({
               <Avatar id={b.id} name={b.name} size={28} />
               <span className="min-w-0 flex-1 truncate font-medium text-gray-700">{b.name}</span>
               {b.net === 0 ? (
-                <span className="text-gray-400">settled up</span>
+                <span className="text-gray-400">{t("balances.settledUp")}</span>
               ) : (
                 <span className={`font-bold ${b.net > 0 ? "amount-pos" : "amount-neg"}`}>
-                  {b.net > 0 ? "gets back " : "owes "}
+                  {b.net > 0 ? t("balances.getsBack") : t("balances.owes")}{" "}
                   {formatCents(Math.abs(b.net), data.currency)}
                 </span>
               )}
@@ -87,23 +89,20 @@ export function BalancesPanel({
         </ul>
         {hasWriteOff && (
           <p className="mt-3 text-xs text-gray-400">
-            Rounding differences of up to {formatCents(ROUNDING_WRITE_OFF_CENTS, data.currency)}{" "}
-            are written off.
+            {t("balances.writeOff", { amount: formatCents(ROUNDING_WRITE_OFF_CENTS, data.currency) })}
           </p>
         )}
       </div>
 
       <div className="card px-4 py-4">
         <h2 className="mb-1 font-bold text-gray-800">
-          {simplify ? "Suggested payments" : "Who owes whom"}
+          {simplify ? t("balances.suggestedPayments") : t("balances.whoOwesWhom")}
         </h2>
         <p className="mb-3 text-xs text-gray-400">
-          {simplify
-            ? "Debts are simplified into the fewest possible payments."
-            : "Each debt is shown as-is, netted per pair."}
+          {simplify ? t("balances.simplifiedHint") : t("balances.pairwiseHint")}
         </p>
         {debts.length === 0 ? (
-          <p className="text-sm text-gray-400">Everyone is settled up 🎉</p>
+          <p className="text-sm text-gray-400">{t("balances.everyoneSettled")}</p>
         ) : (
           <ul className="space-y-2">
             {debts.map((d, i) => (
@@ -114,7 +113,7 @@ export function BalancesPanel({
                 <Avatar id={d.fromAliasId} name={name(d.fromAliasId)} size={24} />
                 <span className="min-w-0 flex-1 truncate text-gray-700">
                   <span className="font-medium">{name(d.fromAliasId)}</span>
-                  <span className="text-gray-400"> owes </span>
+                  <span className="text-gray-400"> {t("balances.owesTo")} </span>
                   <span className="font-medium">{name(d.toAliasId)}</span>
                 </span>
                 <span className="font-bold text-gray-800">
@@ -125,7 +124,7 @@ export function BalancesPanel({
                   className="btn btn-secondary !px-2.5 !py-1 !text-xs"
                   onClick={() => onSettle(d)}
                 >
-                  Settle
+                  {t("balances.settle")}
                 </button>
               </li>
             ))}

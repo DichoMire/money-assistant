@@ -7,6 +7,7 @@ import { formatCents, parseAmount } from "@/lib/money";
 import type { Debt } from "@/lib/simplify";
 import type { ExpenseDto, GroupDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
+import { useT } from "./LocaleProvider";
 import { Modal } from "./Modal";
 
 export function SettleModal({
@@ -20,6 +21,7 @@ export function SettleModal({
   prefill?: Debt;
   onClose: () => void;
 }) {
+  const t = useT();
   const aliases = group.aliases;
   const [fromId, setFromId] = useState(
     settlement?.payers[0]?.aliasId ?? prefill?.fromAliasId ?? aliases[0]?.id ?? ""
@@ -75,7 +77,7 @@ export function SettleModal({
   const toName = aliases.find((a) => a.id === toId)?.name ?? "?";
 
   return (
-    <Modal title={settlement ? "Edit payment" : "Settle up"} onClose={onClose}>
+    <Modal title={settlement ? t("settle.editTitle") : t("settle.title")} onClose={onClose}>
       <div className="space-y-4">
         <div className="flex items-center justify-center gap-3 py-1">
           <Avatar id={fromId} name={fromName} size={40} />
@@ -83,22 +85,22 @@ export function SettleModal({
           <Avatar id={toId} name={toName} size={40} />
         </div>
         <p className="text-center text-sm text-gray-600">
-          <span className="font-semibold">{fromName}</span> paid{" "}
+          <span className="font-semibold">{fromName}</span> {t("settle.paidWord")}{" "}
           <span className="font-semibold">{toName}</span>
           {valid ? ` ${formatCents(amountCents!, currency)}` : ""}
         </p>
 
         <div className="flex gap-2">
-          {personSelect(fromId, setFromId, "Who paid", "settle-from")}
-          {personSelect(toId, setToId, "Who received", "settle-to")}
+          {personSelect(fromId, setFromId, t("settle.whoPaid"), "settle-from")}
+          {personSelect(toId, setToId, t("settle.whoReceived"), "settle-to")}
         </div>
         {fromId === toId && (
-          <p className="text-sm text-red-600">Payer and recipient must be different people.</p>
+          <p className="text-sm text-red-600">{t("settle.differentPeople")}</p>
         )}
 
         <div className="flex gap-2 max-sm:flex-wrap">
           <div className="w-28 shrink-0">
-            <label className="label" htmlFor="settle-cur">Currency</label>
+            <label className="label" htmlFor="settle-cur">{t("expenseModal.currency")}</label>
             <select id="settle-cur" className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>
               {CURRENCIES.map((c) => (
                 <option key={c} value={c}>{c}</option>
@@ -106,7 +108,7 @@ export function SettleModal({
             </select>
           </div>
           <div className="flex-1">
-            <label className="label" htmlFor="settle-amount">Amount</label>
+            <label className="label" htmlFor="settle-amount">{t("expenseModal.amount")}</label>
             <input
               id="settle-amount"
               className="input font-semibold"
@@ -118,7 +120,7 @@ export function SettleModal({
             />
           </div>
           <div className="w-36 shrink-0 max-sm:w-full">
-            <label className="label" htmlFor="settle-date">Date</label>
+            <label className="label" htmlFor="settle-date">{t("expenseModal.date")}</label>
             <input id="settle-date" type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
         </div>
@@ -126,9 +128,9 @@ export function SettleModal({
         {error && <p className="text-sm font-medium text-red-600">{error}</p>}
 
         <div className="flex justify-end gap-2 border-t border-gray-100 pt-4">
-          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>{t("common.cancel")}</button>
           <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={busy || !valid}>
-            {busy ? "Saving…" : settlement ? "Save changes" : "Record payment"}
+            {busy ? t("common.saving") : settlement ? t("expenseModal.saveChanges") : t("settle.recordPayment")}
           </button>
         </div>
       </div>

@@ -5,6 +5,7 @@ import { deleteExpense } from "@/app/actions";
 import { formatDate } from "@/lib/format";
 import { formatCents } from "@/lib/money";
 import type { ExpenseDto, GroupDto } from "@/lib/types";
+import { useLocale, useT } from "./LocaleProvider";
 
 export function ExpenseList({
   data,
@@ -13,6 +14,8 @@ export function ExpenseList({
   data: GroupDto;
   onSelect: (expense: ExpenseDto) => void;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const names = new Map(data.aliases.map((a) => [a.id, a.name]));
   const name = (id: string) => names.get(id) ?? "?";
@@ -29,8 +32,11 @@ export function ExpenseList({
   };
 
   const remove = async (expense: ExpenseDto) => {
-    const label = expense.kind === "settlement" ? "payment" : "expense";
-    if (!window.confirm(`Delete this ${label}?`)) return;
+    const message =
+      expense.kind === "settlement"
+        ? t("expenses.deletePaymentConfirm")
+        : t("expenses.deleteExpenseConfirm");
+    if (!window.confirm(message)) return;
     setDeletingId(expense.id);
     const result = await deleteExpense(expense.id);
     setDeletingId(null);
@@ -40,8 +46,8 @@ export function ExpenseList({
   if (data.expenses.length === 0) {
     return (
       <div className="card px-6 py-12 text-center text-gray-500">
-        <p className="text-lg font-semibold text-gray-700">No expenses yet</p>
-        <p className="mt-1 text-sm">Add the first bill with the button above.</p>
+        <p className="text-lg font-semibold text-gray-700">{t("expenses.none")}</p>
+        <p className="mt-1 text-sm">{t("expenses.noneHint")}</p>
       </div>
     );
   }
@@ -55,10 +61,19 @@ export function ExpenseList({
         const iLent = impact !== null && impact > 0;
         const paidLine =
           e.kind === "settlement"
-            ? `${name(e.payers[0]?.aliasId ?? "")} paid ${name(e.shares[0]?.aliasId ?? "")}`
+            ? t("expenses.paidTo", {
+                from: name(e.payers[0]?.aliasId ?? ""),
+                to: name(e.shares[0]?.aliasId ?? ""),
+              })
             : e.payers.length === 1
-              ? `${name(e.payers[0].aliasId)} paid ${formatCents(e.amountCents, e.currency)}`
-              : `${e.payers.length} people paid ${formatCents(e.amountCents, e.currency)}`;
+              ? t("expenses.paidAmount", {
+                  name: name(e.payers[0].aliasId),
+                  amount: formatCents(e.amountCents, e.currency),
+                })
+              : t("expenses.paidMulti", {
+                  count: e.payers.length,
+                  amount: formatCents(e.amountCents, e.currency),
+                });
         return (
           <button
             key={e.id}
@@ -67,7 +82,7 @@ export function ExpenseList({
             className="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50 max-sm:gap-2 max-sm:px-3"
           >
             <span className="w-14 shrink-0 text-xs leading-tight text-gray-400">
-              {formatDate(e.date)}
+              {formatDate(e.date, locale)}
             </span>
             <span
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-lg ${
@@ -85,7 +100,7 @@ export function ExpenseList({
             </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate font-semibold text-gray-800">
-                {e.kind === "settlement" ? "Payment" : e.description}
+                {e.kind === "settlement" ? t("expenses.payment") : e.description}
               </span>
               <span className="block truncate text-xs text-gray-500">{paidLine}</span>
             </span>
@@ -96,7 +111,7 @@ export function ExpenseList({
                     <span
                       className={`block text-[11px] font-medium ${iOwe ? "amount-neg" : "amount-pos"}`}
                     >
-                      {iOwe ? "you owe" : "you lent"}
+                      {iOwe ? t("expenses.youOwe") : t("expenses.youLent")}
                     </span>
                     <span
                       className={`block text-sm font-bold ${iOwe ? "amount-neg" : "amount-pos"}`}
@@ -115,12 +130,16 @@ export function ExpenseList({
                 (e.convertedCents !== null ? (
                   <span
                     className="block text-xs text-gray-400"
-                    title={e.rateDate ? `Converted with the rate from ${formatDate(e.rateDate)}` : undefined}
+                    title={
+                      e.rateDate
+                        ? t("expenses.rateTooltip", { date: formatDate(e.rateDate, locale) })
+                        : undefined
+                    }
                   >
                     ≈ {formatCents(e.convertedCents, data.currency)}
                   </span>
                 ) : (
-                  <span className="block text-xs font-semibold text-red-500">no rate</span>
+                  <span className="block text-xs font-semibold text-red-500">{t("expenses.noRate")}</span>
                 ))}
               {/* Phones lack the room for the separate impact column, so the
                   personal net goes under the amount instead — stacked, so it
@@ -128,7 +147,7 @@ export function ExpenseList({
               {impact !== null && impact !== 0 && (
                 <span className={`block sm:hidden ${iOwe ? "amount-neg" : "amount-pos"}`}>
                   <span className="block text-[11px] font-medium">
-                    {iOwe ? "you owe" : "you lent"}
+                    {iOwe ? t("expenses.youOwe") : t("expenses.youLent")}
                   </span>
                   <span className="block text-xs font-bold">
                     {formatCents(Math.abs(impact), e.currency)}
@@ -139,7 +158,7 @@ export function ExpenseList({
             <span
               role="button"
               tabIndex={0}
-              aria-label="Delete"
+              aria-label={t("common.delete")}
               className="ml-1 shrink-0 rounded-md px-2 py-1 text-lg leading-none text-gray-300 hover:bg-red-50 hover:text-red-500"
               onClick={(ev) => {
                 ev.stopPropagation();

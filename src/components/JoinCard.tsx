@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { acceptInvite } from "@/app/actions";
+import { countWord } from "@/lib/i18n";
+import { useT } from "./LocaleProvider";
 
 export function JoinCard({
   token,
@@ -16,6 +18,7 @@ export function JoinCard({
   peopleCount: number;
 }) {
   const router = useRouter();
+  const t = useT();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,11 +47,11 @@ export function JoinCard({
         $
       </span>
       <p className="text-sm text-gray-500">
-        <span className="font-semibold text-gray-700">{inviterName}</span> invited you to join
+        <span className="font-semibold text-gray-700">{inviterName}</span> {t("join.invitedSuffix")}
       </p>
       <h1 className="mt-1 text-2xl font-bold text-gray-800">{groupName}</h1>
       <p className="mt-1 text-sm text-gray-400">
-        {peopleCount} {peopleCount === 1 ? "person" : "people"} in this group
+        {peopleCount} {countWord(t, peopleCount, "count.person", "count.people")} {t("join.inGroup")}
       </p>
       {error && <p className="mt-3 text-sm font-medium text-red-600">{error}</p>}
       <button
@@ -57,7 +60,7 @@ export function JoinCard({
         onClick={() => void join()}
         disabled={busy}
       >
-        {busy ? "Joining…" : "Accept invite"}
+        {busy ? t("join.joining") : t("join.accept")}
       </button>
       <button
         type="button"
@@ -65,7 +68,7 @@ export function JoinCard({
         onClick={decline}
         disabled={busy}
       >
-        No thanks
+        {t("join.noThanks")}
       </button>
     </div>
   );

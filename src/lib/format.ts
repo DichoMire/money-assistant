@@ -1,10 +1,17 @@
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+import type { Locale } from "./i18n";
 
-/** "2026-08-23" -> "Aug 23" (or "Aug 23, 2025" for other years). */
-export function formatDate(dateStr: string): string {
+const MONTHS: Record<Locale, string[]> = {
+  en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+  bg: ["яну", "фев", "мар", "апр", "май", "юни", "юли", "авг", "сеп", "окт", "ное", "дек"],
+};
+
+/** en: "2026-08-23" -> "Aug 23" (or "Aug 23, 2025"); bg: "23 авг" (or "23 авг 2025"). */
+export function formatDate(dateStr: string, locale: Locale = "en"): string {
   const [y, m, d] = dateStr.split("-").map(Number);
-  const label = `${MONTHS[(m ?? 1) - 1]} ${d}`;
-  return y === new Date().getFullYear() ? label : `${label}, ${y}`;
+  const month = MONTHS[locale][(m ?? 1) - 1];
+  const label = locale === "bg" ? `${d} ${month}` : `${month} ${d}`;
+  if (y === new Date().getFullYear()) return label;
+  return locale === "bg" ? `${label} ${y}` : `${label}, ${y}`;
 }
 
 const AVATAR_COLORS = [

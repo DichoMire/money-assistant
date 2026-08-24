@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { updateGroup } from "@/app/actions";
+import { countWord } from "@/lib/i18n";
 import type { Debt } from "@/lib/simplify";
 import type { ExpenseDto, GroupDto } from "@/lib/types";
 import { ActivityModal } from "./ActivityModal";
+import { useT } from "./LocaleProvider";
 import { BalancesPanel } from "./BalancesPanel";
 import { ExpenseDetailModal } from "./ExpenseDetailModal";
 import { ExpenseList } from "./ExpenseList";
@@ -25,6 +27,7 @@ type ModalState =
   | null;
 
 export function GroupView({ data }: { data: GroupDto }) {
+  const t = useT();
   const isOwner = data.myRole === "owner";
   const [modal, setModal] = useState<ModalState>(null);
   // Optimistic mirror of the persisted toggle so switching feels instant —
@@ -47,9 +50,9 @@ export function GroupView({ data }: { data: GroupDto }) {
           <h1 className="text-2xl font-bold text-gray-800">{data.name}</h1>
           <p className="text-sm text-gray-500">
             {data.currency} · {data.aliases.length}{" "}
-            {data.aliases.length === 1 ? "person" : "people"}
-            {data.members.length > 1 && ` · ${data.members.length} accounts`}
-            {!isOwner && " · you're a member"}
+            {countWord(t, data.aliases.length, "count.person", "count.people")}
+            {data.members.length > 1 && ` · ${t("count.accounts", { count: data.members.length })}`}
+            {!isOwner && ` · ${t("group.youAreMember")}`}
           </p>
         </div>
         {/* Phones get a uniform 3-column grid of actions instead of a ragged wrap. */}
@@ -60,7 +63,7 @@ export function GroupView({ data }: { data: GroupDto }) {
             onClick={() => setModal({ type: "expense" })}
             disabled={data.aliases.length === 0}
           >
-            Add expense
+            {t("group.addExpense")}
           </button>
           <Link
             href={`/groups/${data.id}/scan`}
@@ -69,7 +72,7 @@ export function GroupView({ data }: { data: GroupDto }) {
             }`}
             aria-disabled={data.aliases.length === 0}
           >
-            Scan receipt
+            {t("group.scanReceipt")}
           </Link>
           <button
             type="button"
@@ -77,17 +80,17 @@ export function GroupView({ data }: { data: GroupDto }) {
             onClick={() => setModal({ type: "settle" })}
             disabled={data.aliases.length < 2}
           >
-            Settle up
+            {t("group.settleUp")}
           </button>
           <button type="button" className="btn btn-secondary max-sm:!px-2" onClick={() => setModal({ type: "members" })}>
-            People
+            {t("group.people")}
           </button>
           <button type="button" className="btn btn-secondary max-sm:!px-2" onClick={() => setModal({ type: "activity" })}>
-            Activity
+            {t("group.activity")}
           </button>
           {isOwner && (
             <button type="button" className="btn btn-secondary max-sm:!px-2" onClick={() => setModal({ type: "settings" })}>
-              Settings
+              {t("group.settings")}
             </button>
           )}
         </div>
@@ -95,16 +98,14 @@ export function GroupView({ data }: { data: GroupDto }) {
 
       {data.aliases.length === 0 ? (
         <div className="card px-6 py-12 text-center text-gray-500">
-          <p className="text-lg font-semibold text-gray-700">Add people first</p>
-          <p className="mt-1 text-sm">
-            Add the people (aliases) in this group, then start logging bills.
-          </p>
+          <p className="text-lg font-semibold text-gray-700">{t("group.addPeopleFirst")}</p>
+          <p className="mt-1 text-sm">{t("group.addPeopleHint")}</p>
           <button
             type="button"
             className="btn btn-primary mt-4"
             onClick={() => setModal({ type: "members" })}
           >
-            Add people
+            {t("group.addPeople")}
           </button>
         </div>
       ) : (

@@ -3,6 +3,8 @@ import { auth } from "@/auth";
 import type { Db } from "@/db";
 import { activityLog } from "@/db/schema";
 import { getMembership } from "./group-data";
+import { enT, type TFunc } from "./i18n";
+import { getT } from "./i18n-server";
 import type { GroupRole } from "./types";
 
 /**
@@ -15,22 +17,26 @@ export type SessionUser = { id: string; email: string; name: string };
 export async function requireUser(): Promise<SessionUser> {
   const session = await auth();
   const user = session?.user;
-  if (!user?.id || !user.email) throw new Error("Not signed in.");
+  if (!user?.id || !user.email) throw new Error((await getT())("errors.notSignedIn"));
   return { id: user.id, email: user.email, name: user.name ?? user.email };
 }
 
 /** Membership gate: "member" allows both roles, "owner" only the owner. */
 export async function requireRole(db: Db, groupId: string, userId: string, minRole: GroupRole) {
   const membership = await getMembership(db, groupId, userId);
-  if (!membership) throw new Error("Group not found.");
+  if (!membership) throw new Error((await getT())("errors.groupNotFound"));
   if (minRole === "owner" && membership.role !== "owner") {
-    throw new Error("Only the group owner can do that.");
+    throw new Error((await getT())("errors.onlyOwner"));
   }
   return membership;
 }
 
-export function fail(error: unknown): { ok: false; error: string } {
-  return { ok: false, error: error instanceof Error ? error.message : "Something went wrong." };
+export async function fail(error: unknown): Promise<{ ok: false; error: string }> {
+  const t: TFunc = await getT().catch(() => enT);
+  return {
+    ok: false,
+    error: error instanceof Error ? error.message : t("errors.somethingWentWrong"),
+  };
 }
 
 export function revalidateGroup(groupId: string) {

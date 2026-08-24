@@ -14,6 +14,7 @@ import {
   type SessionUser,
 } from "@/lib/action-helpers";
 import { isSupportedCurrency } from "@/lib/currencies";
+import { getT } from "@/lib/i18n-server";
 import {
   ASSIGN_MODES,
   buildExpenseInput,
@@ -37,17 +38,18 @@ function revalidateScanPaths(groupId: string, scanId?: string) {
 /** Upload + LLM parse. The client downscales to ~1600px JPEG before calling. */
 export async function parseReceipt(groupId: string, formData: FormData): Promise<ParseReceiptResult> {
   try {
+    const t = await getT();
     const user = await requireUser();
     const db = await getDb();
     const { group } = await requireRole(db, groupId, user.id, "member");
 
     const file = formData.get("image");
-    if (!(file instanceof File)) return { ok: false, error: "No image received." };
+    if (!(file instanceof File)) return { ok: false, error: t("errors.noImage") };
     if (!ACCEPTED_TYPES.has(file.type)) {
-      return { ok: false, error: "Only JPEG, PNG or WebP images are supported." };
+      return { ok: false, error: t("errors.onlyImageTypes") };
     }
     if (file.size > MAX_UPLOAD_BYTES) {
-      return { ok: false, error: "The image is too large. Try a smaller photo." };
+      return { ok: false, error: t("errors.imageTooLarge") };
     }
     const bytes = new Uint8Array(await file.arrayBuffer());
     const imageHash = createHash("sha256").update(bytes).digest("hex");
@@ -61,7 +63,17 @@ export async function parseReceipt(groupId: string, formData: FormData): Promise
     if (existing[0]) return { ok: true, scanId: existing[0].id, duplicate: true };
 
     const outcome = await parseReceiptImage(bytes, file.type, group.currency);
-    if (!outcome.ok) return { ok: false, error: outcome.error };
+    if (!outcome.ok) {
+      const messages = {
+        no_api_key: t("parse.noApiKey"),
+        rate_limited: t("parse.rateLimited"),
+        provider_error: t("parse.providerError"),
+        invalid_response: t("parse.invalidResponse"),
+        not_a_receipt: t("parse.notAReceipt"),
+      } as const;
+      const hint = outcome.busyHint ? t("parse.busyHint") : "";
+      return { ok: false, error: messages[outcome.code] + hint };
+    }
     const { receipt } = outcome;
 
     const scanRows = await db
@@ -136,26 +148,27 @@ async function persistScanEdits(
   | { ok: true; scan: ScanRow; items: ScanItemInput[]; aliasNames: Map<string, string> }
   | { ok: false; error: string }
 > {
+  const t = await getT();
   const scanRows = await db.select().from(receiptScans).where(eq(receiptScans.id, input.scanId));
   const scan = scanRows[0];
-  if (!scan) return { ok: false, error: "Scan not found." };
+  if (!scan) return { ok: false, error: t("errors.scanNotFound") };
   await requireRole(db, scan.groupId, user.id, "member");
 
-  if (!DATE_RE.test(input.date)) return { ok: false, error: "Invalid date." };
-  if (!isSupportedCurrency(input.currency)) return { ok: false, error: "Unsupported currency." };
-  for (const [label, value] of [
-    ["tax", input.taxCents],
-    ["tip", input.tipCents],
-    ["discount", input.discountsCents],
+  if (!DATE_RE.test(input.date)) return { ok: false, error: t("errors.invalidDate") };
+  if (!isSupportedCurrency(input.currency)) return { ok: false, error: t("errors.unsupportedCurrency") };
+  for (const [errorKey, value] of [
+    ["scanReview.invalidTax", input.taxCents],
+    ["scanReview.invalidTip", input.tipCents],
+    ["scanReview.invalidDiscount", input.discountsCents],
   ] as const) {
     if (!Number.isInteger(value) || value < 0) {
-      return { ok: false, error: `Invalid ${label} amount.` };
+      return { ok: false, error: t(errorKey) };
     }
   }
-  if (!Number.isInteger(input.totalCents)) return { ok: false, error: "Invalid total." };
-  if (input.items.length === 0) return { ok: false, error: "Keep at least one item." };
+  if (!Number.isInteger(input.totalCents)) return { ok: false, error: t("errors.invalidTotal") };
+  if (input.items.length === 0) return { ok: false, error: t("scanReview.keepOneItem") };
   if (input.items.length > MAX_RECEIPT_ITEMS) {
-    return { ok: false, error: `At most ${MAX_RECEIPT_ITEMS} items are supported.` };
+    return { ok: false, error: t("errors.atMostItems", { count: MAX_RECEIPT_ITEMS }) };
   }
 
   const groupAliases = await db.select().from(aliases).where(eq(aliases.groupId, scan.groupId));
@@ -165,42 +178,42 @@ async function persistScanEdits(
   const items: ScanItemInput[] = [];
   for (const item of input.items) {
     const name = item.name.trim().slice(0, 200);
-    if (!name) return { ok: false, error: "Every item needs a name." };
+    if (!name) return { ok: false, error: t("scanReview.everyItemNeedsName") };
     if (typeof item.quantity !== "number" || !Number.isFinite(item.quantity) || item.quantity <= 0) {
-      return { ok: false, error: `Invalid quantity for "${name}".` };
+      return { ok: false, error: t("scanReview.invalidQtyFor", { name }) };
     }
-    if (!Number.isInteger(item.totalCents)) return { ok: false, error: `Invalid price for "${name}".` };
+    if (!Number.isInteger(item.totalCents)) return { ok: false, error: t("scanReview.invalidPriceFor", { name }) };
     if (item.unitPriceCents !== null && !Number.isInteger(item.unitPriceCents)) {
-      return { ok: false, error: `Invalid unit price for "${name}".` };
+      return { ok: false, error: t("errors.invalidUnitPriceFor", { name }) };
     }
     if (!ASSIGN_MODES.includes(item.assignMode)) {
-      return { ok: false, error: `Invalid assignment for "${name}".` };
+      return { ok: false, error: t("errors.invalidAssignmentFor", { name }) };
     }
     const shareIds = item.shares.map((s) => s.aliasId);
     if (shareIds.some((id) => !aliasIds.has(id)) || new Set(shareIds).size !== shareIds.length) {
-      return { ok: false, error: `Invalid people assigned to "${name}".` };
+      return { ok: false, error: t("errors.invalidPeopleFor", { name }) };
     }
     if (item.assignMode === "unassigned" && item.shares.length > 0) {
-      return { ok: false, error: `Invalid assignment for "${name}".` };
+      return { ok: false, error: t("errors.invalidAssignmentFor", { name }) };
     }
     if (item.assignMode === "single" && item.shares.length !== 1) {
-      return { ok: false, error: `Assign "${name}" to exactly one person.` };
+      return { ok: false, error: t("errors.assignExactlyOne", { name }) };
     }
     if ((item.assignMode === "single" || item.assignMode === "equal") && item.shares.length >= 1) {
       if (item.shares.some((s) => s.exactCents !== null)) {
-        return { ok: false, error: `Invalid assignment for "${name}".` };
+        return { ok: false, error: t("errors.invalidAssignmentFor", { name }) };
       }
     }
     if (item.assignMode === "equal" && item.shares.length === 0) {
-      return { ok: false, error: `Select who shares "${name}".` };
+      return { ok: false, error: t("errors.selectWhoShares", { name }) };
     }
     // Exact amounts must be integers, but summing to the line total is only
     // enforced at conversion (computePersonTotals) — a draft may temporarily
     // disagree after the user edits an already-split item's price.
     if (item.assignMode === "exact") {
-      if (item.shares.length === 0) return { ok: false, error: `Select who shares "${name}".` };
+      if (item.shares.length === 0) return { ok: false, error: t("errors.selectWhoShares", { name }) };
       if (item.shares.some((s) => s.exactCents !== null && !Number.isInteger(s.exactCents))) {
-        return { ok: false, error: `Invalid split amounts for "${name}".` };
+        return { ok: false, error: t("errors.invalidSplitAmountsFor", { name }) };
       }
     }
     items.push({
@@ -278,11 +291,12 @@ export async function convertScan(
   try {
     const user = await requireUser();
     const db = await getDb();
+    const t = await getT();
     const persisted = await persistScanEdits(db, user, input);
     if (!persisted.ok) return persisted;
     const { scan, items, aliasNames } = persisted;
 
-    if (!aliasNames.has(input.payerAliasId)) return { ok: false, error: "Select who paid." };
+    if (!aliasNames.has(input.payerAliasId)) return { ok: false, error: t("splitError.selectWhoPaid") };
 
     const convertItems: ConvertItem[] = items.map((item) => ({
       name: item.name,
@@ -294,7 +308,8 @@ export async function convertScan(
       convertItems,
       { taxCents: input.taxCents, tipCents: input.tipCents, discountsCents: input.discountsCents },
       input.currency,
-      aliasNames
+      aliasNames,
+      t
     );
     if (!totals.ok) return totals;
 
@@ -319,6 +334,7 @@ export async function convertScan(
         payerAliasId: input.payerAliasId,
         persons: totals.persons,
         grandTotalCents: totals.grandTotalCents,
+        fallbackDescription: t("convert.scannedReceipt"),
       })
     );
     if (!result.ok) return result;
@@ -347,7 +363,7 @@ export async function deleteScan(scanId: string): Promise<ActionResult> {
     const db = await getDb();
     const rows = await db.select().from(receiptScans).where(eq(receiptScans.id, scanId));
     const scan = rows[0];
-    if (!scan) return { ok: false, error: "Scan not found." };
+    if (!scan) return { ok: false, error: (await getT())("errors.scanNotFound") };
     await requireRole(db, scan.groupId, user.id, "member");
     await db.delete(receiptScans).where(eq(receiptScans.id, scanId));
     await logActivity(db, scan.groupId, user, "receipt.deleted", {

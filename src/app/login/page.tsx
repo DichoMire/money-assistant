@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth, devLoginEnabled, hasGoogleAuth, signIn } from "@/auth";
+import { LanguageToggle } from "@/components/LanguageToggle";
+import { getT } from "@/lib/i18n-server";
 
 export default async function LoginPage({
   searchParams,
@@ -14,10 +16,14 @@ export default async function LoginPage({
       : "/";
   const session = await auth();
   if (session?.user) redirect(redirectTo);
+  const t = await getT();
 
   return (
     <main className="flex min-h-screen items-center justify-center px-4">
-      <div className="card w-full max-w-sm px-6 py-8 text-center">
+      <div className="card relative w-full max-w-sm px-6 py-8 text-center">
+        <div className="absolute top-3 right-3">
+          <LanguageToggle />
+        </div>
         <span
           className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl text-3xl font-bold text-white"
           style={{ background: "var(--brand)" }}
@@ -25,9 +31,7 @@ export default async function LoginPage({
           $
         </span>
         <h1 className="text-xl font-bold text-gray-800">Money Assistant</h1>
-        <p className="mt-1 mb-6 text-sm text-gray-500">
-          Track group expenses, split bills, and simplify who pays whom.
-        </p>
+        <p className="mt-1 mb-6 text-sm text-gray-500">{t("app.tagline")}</p>
 
         {hasGoogleAuth && (
           <form
@@ -43,7 +47,7 @@ export default async function LoginPage({
                 <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
                 <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
               </svg>
-              Continue with Google
+              {t("login.continueWithGoogle")}
             </button>
           </form>
         )}
@@ -59,7 +63,7 @@ export default async function LoginPage({
               });
             }}
           >
-            <p className="label !mb-2 text-left">Dev login (local only)</p>
+            <p className="label !mb-2 text-left">{t("login.devLogin")}</p>
             <div className="flex gap-2">
               <input
                 name="email"
@@ -69,7 +73,7 @@ export default async function LoginPage({
                 className="input"
               />
               <button type="submit" className="btn btn-primary shrink-0">
-                Sign in
+                {t("login.signIn")}
               </button>
             </div>
           </form>
@@ -77,8 +81,8 @@ export default async function LoginPage({
 
         {!hasGoogleAuth && !devLoginEnabled && (
           <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
-            Google sign-in is not configured. Set <code>AUTH_GOOGLE_ID</code> and{" "}
-            <code>AUTH_GOOGLE_SECRET</code> in the environment.
+            {t("login.notConfigured1")} <code>AUTH_GOOGLE_ID</code> {t("login.notConfigured2")}{" "}
+            <code>AUTH_GOOGLE_SECRET</code> {t("login.notConfigured3")}
           </p>
         )}
       </div>

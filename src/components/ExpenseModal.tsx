@@ -3,15 +3,16 @@
 import { useMemo, useState } from "react";
 import { saveExpense } from "@/app/actions";
 import { CURRENCIES } from "@/lib/currencies";
+import { countWord, type TKey } from "@/lib/i18n";
 import { formatCents, parseAmount, parseNumber } from "@/lib/money";
 import {
   computeShares,
-  SPLIT_METHOD_LABELS,
   type ComputedShare,
   type SplitEntry,
   type SplitMethod,
   validatePayers,
 } from "@/lib/split";
+import { useT } from "./LocaleProvider";
 
 type SplitState = {
   entries: SplitEntry[] | null;
@@ -27,12 +28,13 @@ type Values = Record<string, string>;
 
 const centsToStr = (cents: number) => (cents / 100).toFixed(2);
 
-const METHOD_TABS: { method: SplitMethod; tab: string; hint: string }[] = [
-  { method: "equal", tab: "=", hint: "Split equally. Select which people owe a share." },
-  { method: "exact", tab: "1.23", hint: "Specify exactly how much each person owes." },
-  { method: "percent", tab: "%", hint: "Enter the percentage of the bill each person owes." },
-  { method: "shares", tab: "shares", hint: "Split by shares — great for time-based or per-family splitting." },
-  { method: "adjustment", tab: "+/-", hint: "Selected people split equally, plus or minus the adjustments you enter." },
+// tab: null renders the localized "shares" word instead of a symbol.
+const METHOD_TABS: { method: SplitMethod; tab: string | null; hintKey: TKey }[] = [
+  { method: "equal", tab: "=", hintKey: "expenseModal.hintEqual" },
+  { method: "exact", tab: "1.23", hintKey: "expenseModal.hintExact" },
+  { method: "percent", tab: "%", hintKey: "expenseModal.hintPercent" },
+  { method: "shares", tab: null, hintKey: "expenseModal.hintShares" },
+  { method: "adjustment", tab: "+/-", hintKey: "expenseModal.hintAdjustment" },
 ];
 
 export function ExpenseModal({
@@ -44,6 +46,8 @@ export function ExpenseModal({
   expense?: ExpenseDto;
   onClose: () => void;
 }) {
+  const t = useT();
+  const methodLabel = (m: SplitMethod) => t(`splitMethod.${m}` as TKey);
   const aliases = group.aliases;
 
   const [view, setView] = useState<View>("main");
@@ -98,9 +102,9 @@ export function ExpenseModal({
 
   // ----- who paid -----
   const payerResult = useMemo(() => {
-    if (!amountValid) return { payers: null, error: "Enter a valid amount." };
+    if (!amountValid) return { payers: null, error: t("expenseModal.enterValidAmount") };
     if (payerMode === "single") {
-      if (!singlePayer) return { payers: null, error: "Select who paid." };
+      if (!singlePayer) return { payers: null, error: t("splitError.selectWhoPaid") };
       return { payers: [{ aliasId: singlePayer, paidCents: totalCents! }], error: null };
     }
     const payers: { aliasId: string; paidCents: number }[] = [];
@@ -108,12 +112,14 @@ export function ExpenseModal({
       const raw = (multiPaid[a.id] ?? "").trim();
       if (raw === "") continue;
       const cents = parseAmount(raw);
-      if (cents === null || cents < 0) return { payers: null, error: `Invalid amount for ${a.name}.` };
+      if (cents === null || cents < 0) {
+        return { payers: null, error: t("expenseModal.invalidAmountFor", { name: a.name }) };
+      }
       if (cents > 0) payers.push({ aliasId: a.id, paidCents: cents });
     }
-    const error = validatePayers(totalCents!, payers, currency);
+    const error = validatePayers(totalCents!, payers, currency, t);
     return { payers: error ? null : payers, error };
-  }, [amountValid, payerMode, singlePayer, multiPaid, aliases, totalCents, currency]);
+  }, [amountValid, payerMode, singlePayer, multiPaid, aliases, totalCents, currency, t]);
 
   const multiPaidSum = aliases.reduce((sum, a) => {
     const cents = parseAmount((multiPaid[a.id] ?? "").trim() || "0");
@@ -122,7 +128,7 @@ export function ExpenseModal({
 
   // ----- who owes -----
   const splitResult = useMemo<SplitState>(() => {
-    if (!amountValid) return { entries: null, error: "Enter a valid amount." };
+    if (!amountValid) return { entries: null, error: t("expenseModal.enterValidAmount") };
     const entries: SplitEntry[] = [];
     const readNumber = (values: Values, id: string): number | null | "invalid" => {
       const raw = (values[id] ?? "").trim();
@@ -139,22 +145,24 @@ export function ExpenseModal({
       for (const a of aliases) {
         if (!included[a.id]) continue;
         const value = readNumber(values, a.id);
-        if (value === "invalid") return { entries: null, error: `Invalid value for ${a.name}.` };
+        if (value === "invalid") {
+          return { entries: null, error: t("expenseModal.invalidValueFor", { name: a.name }) };
+        }
         if (method === "adjustment") entries.push({ aliasId: a.id, value: value ?? 0 });
         else if (value !== null && value !== 0) entries.push({ aliasId: a.id, value });
       }
     }
-    const computed = computeShares(method, totalCents!, entries, currency);
+    const computed = computeShares(method, totalCents!, entries, currency, t);
     if (!computed.ok) return { entries: null, error: computed.error };
     return { entries, error: null, shares: computed.shares };
-  }, [amountValid, method, aliases, included, exactVals, percentVals, sharesVals, adjustVals, totalCents, currency]);
+  }, [amountValid, method, aliases, included, exactVals, percentVals, sharesVals, adjustVals, totalCents, currency, t]);
 
   const owedByAlias = new Map((splitResult.shares ?? []).map((s) => [s.aliasId, s.owedCents]));
 
   const validationError = !description.trim()
-    ? "Enter a description."
+    ? t("expenseModal.enterDescription")
     : !amountValid
-      ? "Enter a valid amount."
+      ? t("expenseModal.enterValidAmount")
       : (payerResult.error ?? splitResult.error);
 
   const save = async () => {
@@ -179,7 +187,9 @@ export function ExpenseModal({
 
   const payerLabel =
     payerMode === "multi"
-      ? `${(payerResult.payers ?? []).length || "multiple"} people`
+      ? (payerResult.payers ?? []).length > 0
+        ? t("expenseModal.multiPayers", { count: (payerResult.payers ?? []).length })
+        : t("expenseModal.multiplePayers")
       : (aliases.find((a) => a.id === singlePayer)?.name ?? "…");
 
   const chip = (label: string, onClick: () => void) => (
@@ -197,11 +207,11 @@ export function ExpenseModal({
   const mainView = (
     <div className="space-y-4">
       <div>
-        <label className="label" htmlFor="exp-desc">Description</label>
+        <label className="label" htmlFor="exp-desc">{t("expenseModal.description")}</label>
         <input
           id="exp-desc"
           className="input"
-          placeholder="Dinner, taxi, groceries…"
+          placeholder={t("expenseModal.descriptionPlaceholder")}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           autoFocus={!expense}
@@ -209,7 +219,7 @@ export function ExpenseModal({
       </div>
       <div className="flex gap-2 max-sm:flex-wrap">
         <div className="w-28 shrink-0">
-          <label className="label" htmlFor="exp-cur">Currency</label>
+          <label className="label" htmlFor="exp-cur">{t("expenseModal.currency")}</label>
           <select id="exp-cur" className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>
             {CURRENCIES.map((c) => (
               <option key={c} value={c}>{c}</option>
@@ -217,7 +227,7 @@ export function ExpenseModal({
           </select>
         </div>
         <div className="flex-1">
-          <label className="label" htmlFor="exp-amount">Amount</label>
+          <label className="label" htmlFor="exp-amount">{t("expenseModal.amount")}</label>
           <input
             id="exp-amount"
             className="input text-lg font-semibold"
@@ -228,21 +238,20 @@ export function ExpenseModal({
           />
         </div>
         <div className="w-36 shrink-0 max-sm:w-full">
-          <label className="label" htmlFor="exp-date">Date</label>
+          <label className="label" htmlFor="exp-date">{t("expenseModal.date")}</label>
           <input id="exp-date" type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
       </div>
 
       {currency !== group.currency && (
         <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-700">
-          This bill is in {currency}; balances are kept in {group.currency} using the exchange rate
-          of the transaction date (or the nearest available).
+          {t("expenseModal.foreignNote", { currency, groupCurrency: group.currency })}
         </p>
       )}
 
       <p className="text-center text-[15px] text-gray-700">
-        Paid by {chip(payerLabel, () => setView("payers"))} and split{" "}
-        {chip(SPLIT_METHOD_LABELS[method], () => setView("split"))}.
+        {t("expenseModal.paidBy")} {chip(payerLabel, () => setView("payers"))}{" "}
+        {t("expenseModal.andSplit")} {chip(methodLabel(method), () => setView("split"))}.
       </p>
 
       {(serverError || (validationError && amountStr !== "" && description !== "")) && (
@@ -252,9 +261,9 @@ export function ExpenseModal({
       )}
 
       <div className="flex justify-end gap-2 border-t border-gray-100 pt-4">
-        <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn btn-secondary" onClick={onClose}>{t("common.cancel")}</button>
         <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={busy || !!validationError}>
-          {busy ? "Saving…" : expense ? "Save changes" : "Add expense"}
+          {busy ? t("expenseModal.saving") : expense ? t("expenseModal.saveChanges") : t("group.addExpense")}
         </button>
       </div>
     </div>
@@ -303,20 +312,23 @@ export function ExpenseModal({
           checked={payerMode === "multi"}
           onChange={(e) => setPayerMode(e.target.checked ? "multi" : "single")}
         />
-        Multiple people paid
+        {t("expenseModal.multiplePaid")}
       </label>
 
       {payerMode === "multi" && amountValid && (
         <p
           className={`px-2 text-sm font-semibold ${multiPaidSum === totalCents ? "text-gray-500" : "text-red-600"}`}
         >
-          {formatCents(multiPaidSum, currency)} of {formatCents(totalCents!, currency)} entered —{" "}
-          {formatCents(totalCents! - multiPaidSum, currency)} left
+          {t("split.enteredLeft", {
+            entered: formatCents(multiPaidSum, currency),
+            total: formatCents(totalCents!, currency),
+            left: formatCents(totalCents! - multiPaidSum, currency),
+          })}
         </p>
       )}
 
       <div className="flex justify-end border-t border-gray-100 pt-3">
-        <button type="button" className="btn btn-primary" onClick={() => setView("main")}>Done</button>
+        <button type="button" className="btn btn-primary" onClick={() => setView("main")}>{t("common.done")}</button>
       </div>
     </div>
   );
@@ -326,15 +338,18 @@ export function ExpenseModal({
     const total = totalCents!;
     const includedAliases = aliases.filter((a) => included[a.id]);
     if (includedAliases.length === 0) {
-      return <p className="text-sm font-semibold text-red-600">Select at least one person.</p>;
+      return <p className="text-sm font-semibold text-red-600">{t("split.selectAtLeastOne")}</p>;
     }
     switch (method) {
       case "equal": {
         const count = includedAliases.length;
         return (
           <p className="text-sm font-semibold text-gray-500">
-            {formatCents(Math.round(total / count), currency)}/person ({count}{" "}
-            {count === 1 ? "person" : "people"})
+            {t("expenseModal.perPerson", {
+              amount: formatCents(Math.round(total / count), currency),
+              count,
+              word: countWord(t, count, "count.person", "count.people"),
+            })}
           </p>
         );
       }
@@ -343,8 +358,11 @@ export function ExpenseModal({
         const ok = entered === total;
         return (
           <p className={`text-sm font-semibold ${ok ? "text-gray-500" : "text-red-600"}`}>
-            {formatCents(entered, currency)} of {formatCents(total, currency)} entered —{" "}
-            {formatCents(total - entered, currency)} left
+            {t("split.enteredLeft", {
+              entered: formatCents(entered, currency),
+              total: formatCents(total, currency),
+              left: formatCents(total - entered, currency),
+            })}
           </p>
         );
       }
@@ -353,22 +371,29 @@ export function ExpenseModal({
         const ok = Math.abs(entered - 100) <= 0.01;
         return (
           <p className={`text-sm font-semibold ${ok ? "text-gray-500" : "text-red-600"}`}>
-            {Math.round(entered * 100) / 100}% of 100%
+            {t("expenseModal.percentOf", { entered: Math.round(entered * 100) / 100 })}
           </p>
         );
       }
       case "shares": {
         const entered = includedAliases.reduce((sum, a) => sum + (parseNumber((sharesVals[a.id] ?? "").trim() || "0") ?? 0), 0);
-        return <p className="text-sm font-semibold text-gray-500">{Math.round(entered * 100) / 100} total shares</p>;
+        return (
+          <p className="text-sm font-semibold text-gray-500">
+            {t("expenseModal.totalShares", { count: Math.round(entered * 100) / 100 })}
+          </p>
+        );
       }
       case "adjustment": {
         const adjustments = includedAliases.reduce((sum, a) => sum + (parseAmount((adjustVals[a.id] ?? "").trim() || "0") ?? 0), 0);
         const remaining = total - adjustments;
         return remaining < 0 ? (
-          <p className="text-sm font-semibold text-red-600">Adjustments exceed the total.</p>
+          <p className="text-sm font-semibold text-red-600">{t("expenseModal.adjustmentsExceed")}</p>
         ) : (
           <p className="text-sm font-semibold text-gray-500">
-            {formatCents(remaining, currency)} split equally between {includedAliases.length} on top of adjustments
+            {t("expenseModal.equalOnTop", {
+              amount: formatCents(remaining, currency),
+              count: includedAliases.length,
+            })}
           </p>
         );
       }
@@ -378,25 +403,25 @@ export function ExpenseModal({
   const splitView = (
     <div className="space-y-3">
       <div className="flex gap-1">
-        {METHOD_TABS.map((t) => (
+        {METHOD_TABS.map((tab) => (
           <button
-            key={t.method}
+            key={tab.method}
             type="button"
-            onClick={() => setMethod(t.method)}
+            onClick={() => setMethod(tab.method)}
             className={`flex-1 cursor-pointer rounded-lg border px-1 py-1.5 text-sm font-bold transition-colors ${
-              method === t.method
+              method === tab.method
                 ? "border-transparent text-white"
                 : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
             }`}
-            style={method === t.method ? { background: "var(--brand)" } : undefined}
-            title={SPLIT_METHOD_LABELS[t.method]}
+            style={method === tab.method ? { background: "var(--brand)" } : undefined}
+            title={methodLabel(tab.method)}
           >
-            {t.tab}
+            {tab.tab ?? t("expenseModal.tabShares")}
           </button>
         ))}
       </div>
       <p className="text-center text-xs text-gray-500">
-        {METHOD_TABS.find((t) => t.method === method)!.hint}
+        {t(METHOD_TABS.find((x) => x.method === method)!.hintKey)}
       </p>
 
       <div className="max-h-64 space-y-1 overflow-y-auto">
@@ -407,7 +432,7 @@ export function ExpenseModal({
               <button
                 type="button"
                 className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
-                title={isIncluded ? "Click to exclude from this split" : "Click to include in this split"}
+                title={isIncluded ? t("expenseModal.excludeTooltip") : t("expenseModal.includeTooltip")}
                 onClick={() => setIncluded({ ...included, [a.id]: !isIncluded })}
               >
                 <CheckDot checked={isIncluded} />
@@ -425,7 +450,7 @@ export function ExpenseModal({
                   >
                     {method === "equal"
                       ? formatCents(owedByAlias.get(a.id)!, currency)
-                      : `owes ${formatCents(owedByAlias.get(a.id)!, currency)}`}
+                      : t("split.owesAmount", { amount: formatCents(owedByAlias.get(a.id)!, currency) })}
                   </span>
                 )}
               </button>
@@ -459,15 +484,15 @@ export function ExpenseModal({
       <div className="border-t border-gray-100 px-2 pt-3">{splitFooter()}</div>
 
       <div className="flex justify-end border-t border-gray-100 pt-3">
-        <button type="button" className="btn btn-primary" onClick={() => setView("main")}>Done</button>
+        <button type="button" className="btn btn-primary" onClick={() => setView("main")}>{t("common.done")}</button>
       </div>
     </div>
   );
 
   const titles: Record<View, string> = {
-    main: expense ? "Edit expense" : "Add an expense",
-    payers: "Who paid?",
-    split: "How should this be split?",
+    main: expense ? t("expenseModal.editTitle") : t("expenseModal.addTitle"),
+    payers: t("expenseModal.whoPaidTitle"),
+    split: t("expenseModal.splitTitle"),
   };
 
   return (
@@ -481,7 +506,7 @@ export function ExpenseModal({
               type="button"
               onClick={() => setView("main")}
               className="cursor-pointer rounded-md px-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-              aria-label="Back"
+              aria-label={t("common.back")}
             >
               ←
             </button>

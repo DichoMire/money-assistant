@@ -40,7 +40,7 @@ export type ParseFailureCode =
 
 export type ParseOutcome =
   | { ok: true; receipt: ParsedReceipt; reconciles: boolean; diffCents: number; model: string }
-  | { ok: false; code: ParseFailureCode; error: string };
+  | { ok: false; code: ParseFailureCode; error: string; busyHint?: boolean };
 
 export const PARSE_ERROR_MESSAGES: Record<ParseFailureCode, string> = {
   no_api_key: "Receipt scanning is not configured (missing OPENROUTER_API_KEY).",
@@ -195,6 +195,7 @@ export async function parseReceiptImage(
       ok: false,
       code: "invalid_response",
       error: PARSE_ERROR_MESSAGES.invalid_response + busyHint,
+      busyHint: sawRateLimit,
     };
   }
   if (sawRateLimit && !otherDetail) {

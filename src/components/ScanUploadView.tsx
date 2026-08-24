@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { deleteScan, parseReceipt } from "@/app/receipt-actions";
 import { formatDate } from "@/lib/format";
+import { countWord, type TFunc } from "@/lib/i18n";
 import { formatCents } from "@/lib/money";
 import type { GroupDto, ScanSummaryDto } from "@/lib/types";
+import { useLocale, useT } from "./LocaleProvider";
 
 // Long grocery receipts need vertical resolution — a 45-line receipt squeezed
 // to 1600px makes the text unreadable for the model. Receipt-shaped images
@@ -40,11 +42,11 @@ function toBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob | null
 }
 
 /** Downscale (never upscale) and re-encode as JPEG. */
-async function downscaleToJpeg(file: File): Promise<Blob> {
+async function downscaleToJpeg(file: File, t: TFunc): Promise<Blob> {
   const source = await decodeImage(file);
   const width = "naturalWidth" in source ? source.naturalWidth : source.width;
   const height = "naturalHeight" in source ? source.naturalHeight : source.height;
-  if (!width || !height) throw new Error("Couldn't read this image.");
+  if (!width || !height) throw new Error(t("scan.cantRead"));
   const aspect = Math.max(width, height) / Math.min(width, height);
   const maxEdge = aspect >= TALL_ASPECT ? MAX_EDGE_TALL : MAX_EDGE;
   const scale = Math.min(1, maxEdge / Math.max(width, height));
@@ -52,17 +54,19 @@ async function downscaleToJpeg(file: File): Promise<Blob> {
   canvas.width = Math.max(1, Math.round(width * scale));
   canvas.height = Math.max(1, Math.round(height * scale));
   const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Couldn't process this image.");
+  if (!ctx) throw new Error(t("scan.cantProcess"));
   ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
   if ("close" in source) source.close();
   let blob = await toBlob(canvas, JPEG_QUALITY);
   if (blob && blob.size > RETRY_THRESHOLD_BYTES) blob = await toBlob(canvas, RETRY_QUALITY);
-  if (!blob) throw new Error("Couldn't process this image.");
+  if (!blob) throw new Error(t("scan.cantProcess"));
   return blob;
 }
 
 export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanSummaryDto[] }) {
   const router = useRouter();
+  const t = useT();
+  const locale = useLocale();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -74,17 +78,17 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
     if (busy || !file) return;
     setError(null);
     if (!file.type.startsWith("image/")) {
-      setError("Choose an image file (a photo of the receipt).");
+      setError(t("scan.chooseImage"));
       return;
     }
-    setBusy("Preparing photo…");
+    setBusy(t("scan.preparing"));
     try {
-      const jpeg = await downscaleToJpeg(file);
+      const jpeg = await downscaleToJpeg(file, t);
       setPreview((old) => {
         if (old) URL.revokeObjectURL(old);
         return URL.createObjectURL(jpeg);
       });
-      setBusy("Reading receipt… this can take up to a minute");
+      setBusy(t("scan.reading"));
       const formData = new FormData();
       formData.append("image", new File([jpeg], "receipt.jpg", { type: "image/jpeg" }));
       const result = await parseReceipt(group.id, formData);
@@ -94,13 +98,13 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
       }
       setError(result.error);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't read this image — try a JPEG or PNG photo.");
+      setError(e instanceof Error ? e.message : t("scan.cantReadImage"));
     }
     setBusy(null);
   };
 
   const removeScan = async (scan: ScanSummaryDto) => {
-    if (!window.confirm("Delete this scan? The expense created from it (if any) is kept.")) return;
+    if (!window.confirm(t("scan.deleteConfirm"))) return;
     setDeletingId(scan.id);
     const result = await deleteScan(scan.id);
     setDeletingId(null);
@@ -114,12 +118,12 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
         <Link
           href={`/groups/${group.id}`}
           className="cursor-pointer rounded-md px-2 py-1 text-xl leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-          aria-label="Back to group"
+          aria-label={t("scan.backToGroup")}
         >
           ←
         </Link>
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Scan a receipt</h1>
+          <h1 className="text-2xl font-bold text-gray-800">{t("scan.title")}</h1>
           <p className="text-sm text-gray-500">{group.name}</p>
         </div>
       </div>
@@ -162,7 +166,7 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={preview}
-                alt="Receipt preview"
+                alt={t("scan.previewAlt")}
                 className="mx-auto max-h-48 rounded-lg border border-gray-200 object-contain"
               />
             )}
@@ -173,10 +177,8 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
             <p className="text-4xl" aria-hidden>
               🧾
             </p>
-            <p className="mt-2 text-base font-semibold text-gray-700">
-              Drop a receipt photo here
-            </p>
-            <p className="mt-1 text-sm text-gray-500">or click to choose a file</p>
+            <p className="mt-2 text-base font-semibold text-gray-700">{t("scan.dropHere")}</p>
+            <p className="mt-1 text-sm text-gray-500">{t("scan.clickToChoose")}</p>
           </>
         )}
       </div>
@@ -185,7 +187,7 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
         <p className="mt-3 text-sm font-medium text-red-600">
           {error}{" "}
           <Link href={`/groups/${group.id}`} className="underline">
-            Add the expense manually instead
+            {t("scan.addManually")}
           </Link>
           .
         </p>
@@ -193,7 +195,7 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
 
       {scans.length > 0 && (
         <div className="mt-8">
-          <p className="label">Previous scans</p>
+          <p className="label">{t("scan.previousScans")}</p>
           <ul className="card divide-y divide-gray-100">
             {scans.map((scan) => (
               <li key={scan.id} className="flex items-center gap-3 px-4 py-3">
@@ -204,16 +206,16 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
                 >
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-gray-800">
-                      {scan.merchant ?? "Receipt"}
+                      {scan.merchant ?? t("scan.receiptFallback")}
                       {!scan.reconciles && (
-                        <span className="ml-1.5 text-amber-500" title="Items don't add up to the total">
+                        <span className="ml-1.5 text-amber-500" title={t("scan.mismatchTooltip")}>
                           ⚠
                         </span>
                       )}
                     </p>
                     <p className="text-xs text-gray-500">
-                      {formatDate(scan.date)} · {scan.itemCount}{" "}
-                      {scan.itemCount === 1 ? "item" : "items"}
+                      {formatDate(scan.date, locale)} · {scan.itemCount}{" "}
+                      {countWord(t, scan.itemCount, "count.item", "count.items")}
                     </p>
                   </div>
                   <span
@@ -223,7 +225,7 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
                         : "bg-gray-100 text-gray-500"
                     }`}
                   >
-                    {scan.expenseId ? "Converted" : "Draft"}
+                    {scan.expenseId ? t("scan.converted") : t("scan.draft")}
                   </span>
                   <span className="shrink-0 text-sm font-semibold text-gray-800">
                     {formatCents(scan.totalCents, scan.currency)}
@@ -232,7 +234,7 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
                 <button
                   type="button"
                   className="cursor-pointer rounded-md px-2 py-0.5 text-lg leading-none text-gray-300 hover:bg-red-50 hover:text-red-500"
-                  aria-label="Delete scan"
+                  aria-label={t("scan.deleteAria")}
                   disabled={deletingId === scan.id}
                   onClick={() => void removeScan(scan)}
                 >

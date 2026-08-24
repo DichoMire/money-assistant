@@ -1,3 +1,4 @@
+import { enT, type TFunc } from "./i18n";
 import { allocateByWeights, formatCents } from "./money";
 
 export const SPLIT_METHODS = ["equal", "exact", "percent", "shares", "adjustment"] as const;
@@ -32,10 +33,11 @@ export function computeShares(
   method: SplitMethod,
   totalCents: number,
   entries: SplitEntry[],
-  currency: string
+  currency: string,
+  t: TFunc = enT
 ): SplitResult {
-  if (totalCents <= 0) return { ok: false, error: "Amount must be greater than zero." };
-  if (entries.length === 0) return { ok: false, error: "Select at least one person." };
+  if (totalCents <= 0) return { ok: false, error: t("splitError.amountGreaterZero") };
+  if (entries.length === 0) return { ok: false, error: t("split.selectAtLeastOne") };
 
   switch (method) {
     case "equal": {
@@ -47,11 +49,14 @@ export function computeShares(
     }
     case "exact": {
       const sum = entries.reduce((a, e) => a + Math.round(e.value), 0);
-      if (entries.some((e) => e.value < 0)) return { ok: false, error: "Amounts cannot be negative." };
+      if (entries.some((e) => e.value < 0)) return { ok: false, error: t("splitError.amountsNegative") };
       if (sum !== totalCents) {
         return {
           ok: false,
-          error: `Amounts add up to ${formatCents(sum, currency)}, but the total is ${formatCents(totalCents, currency)}.`,
+          error: t("splitError.amountsSum", {
+            sum: formatCents(sum, currency),
+            total: formatCents(totalCents, currency),
+          }),
         };
       }
       return {
@@ -65,12 +70,12 @@ export function computeShares(
     }
     case "percent": {
       const sum = entries.reduce((a, e) => a + e.value, 0);
-      if (entries.some((e) => e.value < 0)) return { ok: false, error: "Percentages cannot be negative." };
+      if (entries.some((e) => e.value < 0)) return { ok: false, error: t("splitError.percentNegative") };
       if (Math.abs(sum - 100) > 0.01) {
-        return { ok: false, error: `Percentages add up to ${round2(sum)}%, they must total 100%.` };
+        return { ok: false, error: t("splitError.percentSum", { sum: round2(sum) }) };
       }
       const positive = entries.filter((e) => e.value > 0);
-      if (positive.length === 0) return { ok: false, error: "At least one percentage must be above zero." };
+      if (positive.length === 0) return { ok: false, error: t("splitError.percentAboveZero") };
       const owed = allocateByWeights(totalCents, positive.map((e) => e.value));
       return {
         ok: true,
@@ -78,9 +83,9 @@ export function computeShares(
       };
     }
     case "shares": {
-      if (entries.some((e) => e.value < 0)) return { ok: false, error: "Shares cannot be negative." };
+      if (entries.some((e) => e.value < 0)) return { ok: false, error: t("splitError.sharesNegative") };
       const positive = entries.filter((e) => e.value > 0);
-      if (positive.length === 0) return { ok: false, error: "Enter at least one share above zero." };
+      if (positive.length === 0) return { ok: false, error: t("splitError.shareAboveZero") };
       const owed = allocateByWeights(totalCents, positive.map((e) => e.value));
       return {
         ok: true,
@@ -95,7 +100,7 @@ export function computeShares(
       if (base < 0) {
         return {
           ok: false,
-          error: `Adjustments add up to ${formatCents(adjustmentSum, currency)}, which exceeds the total.`,
+          error: t("splitError.adjustmentsSum", { sum: formatCents(adjustmentSum, currency) }),
         };
       }
       const baseShares = allocateByWeights(base, entries.map(() => 1));
@@ -106,7 +111,7 @@ export function computeShares(
       }));
       const negative = shares.find((s) => s.owedCents < 0);
       if (negative) {
-        return { ok: false, error: "An adjustment makes someone's share negative. Reduce it." };
+        return { ok: false, error: t("splitError.adjustmentNegative") };
       }
       return { ok: true, shares };
     }
@@ -117,13 +122,17 @@ export function computeShares(
 export function validatePayers(
   totalCents: number,
   payers: { aliasId: string; paidCents: number }[],
-  currency: string
+  currency: string,
+  t: TFunc = enT
 ): string | null {
-  if (payers.length === 0) return "Select who paid.";
-  if (payers.some((p) => p.paidCents < 0)) return "Paid amounts cannot be negative.";
+  if (payers.length === 0) return t("splitError.selectWhoPaid");
+  if (payers.some((p) => p.paidCents < 0)) return t("splitError.paidNegative");
   const sum = payers.reduce((a, p) => a + p.paidCents, 0);
   if (sum !== totalCents) {
-    return `Payments add up to ${formatCents(sum, currency)}, but the total is ${formatCents(totalCents, currency)}.`;
+    return t("splitError.paymentsSum", {
+      sum: formatCents(sum, currency),
+      total: formatCents(totalCents, currency),
+    });
   }
   return null;
 }

@@ -18,10 +18,13 @@ import {
 import { formatDate } from "@/lib/format";
 import type { CircleUserDto, GroupDto, InviteLinkDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
+import { useLocale, useT } from "./LocaleProvider";
 import { Modal } from "./Modal";
 
 export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () => void }) {
   const router = useRouter();
+  const t = useT();
+  const locale = useLocale();
   const isOwner = group.myRole === "owner";
 
   const [query, setQuery] = useState("");
@@ -75,22 +78,22 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      setError("Could not copy — select the link text and copy it manually.");
+      setError(t("members.couldNotCopy"));
     }
   };
 
   const virtualAliases = group.aliases.filter((a) => a.userId === null);
 
   return (
-    <Modal title="People in this group" onClose={onClose} wide>
+    <Modal title={t("members.title")} onClose={onClose} wide>
       <div className="space-y-5">
         {/* ---- Invite (owner only) ---- */}
         {isOwner && (
           <section>
-            <p className="label">Invite people</p>
+            <p className="label">{t("members.invitePeople")}</p>
             <input
               className="input"
-              placeholder="Search your circle by name or email…"
+              placeholder={t("members.searchPlaceholder")}
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
@@ -113,37 +116,32 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                       onClick={async () => {
                         if (await run(() => addCircleMember(group.id, c.userId))) {
                           setQuery("");
-                          setInfo(`${c.name} joined the group.`);
+                          setInfo(t("members.joinedInfo", { name: c.name }));
                           reloadInviteData();
                         }
                       }}
                     >
-                      Add
+                      {t("members.add")}
                     </button>
                   </li>
                 ))}
               </ul>
             )}
             {query.trim() !== "" && suggestions.length === 0 && (
-              <p className="mt-1 text-sm text-gray-500">
-                No one in your circle matches. Share the invite link below instead.
-              </p>
+              <p className="mt-1 text-sm text-gray-500">{t("members.noCircleMatch")}</p>
             )}
-            <p className="mt-1 text-xs text-gray-400">
-              Your circle is everyone you already share a group with — they can be added
-              instantly. Anyone else joins through the invite link.
-            </p>
+            <p className="mt-1 text-xs text-gray-400">{t("members.circleHint")}</p>
             {info && <p className="mt-2 text-sm font-medium" style={{ color: "var(--brand-dark)" }}>{info}</p>}
 
             {/* Invite link */}
             <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
-              <p className="text-xs font-semibold text-gray-500 uppercase">Invite link</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase">{t("members.inviteLink")}</p>
               {link ? (
                 <>
                   <div className="mt-2 flex gap-2 max-sm:flex-wrap">
                     <input className="input !py-1.5 font-mono !text-xs max-sm:!text-base" readOnly value={link.url} onFocus={(e) => e.target.select()} />
                     <button type="button" className="btn btn-primary shrink-0 !px-3 !py-1.5 !text-xs" onClick={() => void copyLink(link.url)}>
-                      {copied ? "Copied!" : "Copy"}
+                      {copied ? t("members.copied") : t("members.copy")}
                     </button>
                     <button
                       type="button"
@@ -153,11 +151,11 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                         if (await run(() => revokeInvite(link.id))) reloadInviteData();
                       }}
                     >
-                      Revoke
+                      {t("members.revoke")}
                     </button>
                   </div>
                   <p className="mt-1 text-xs text-gray-400">
-                    Anyone with this link can join until {formatDate(link.expiresAt)}.
+                    {t("members.linkValidUntil", { date: formatDate(link.expiresAt, locale) })}
                   </p>
                 </>
               ) : (
@@ -171,12 +169,12 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                     try {
                       setLink(await createInviteLink(group.id));
                     } catch {
-                      setError("Could not create the link.");
+                      setError(t("members.couldNotCreateLink"));
                     }
                     setBusy(false);
                   }}
                 >
-                  Create invite link (valid 7 days)
+                  {t("members.createLink")}
                 </button>
               )}
             </div>
@@ -185,7 +183,7 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
 
         {/* ---- Members ---- */}
         <section>
-          <p className="label">Members ({group.members.length})</p>
+          <p className="label">{t("members.membersCount", { count: group.members.length })}</p>
           <ul className="space-y-1">
             {group.members.map((m) => {
               const alias = group.aliases.find((a) => a.id === m.aliasId);
@@ -202,8 +200,8 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                       }}
                     >
                       <input className="input !py-1.5" value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus />
-                      <button type="submit" className="btn btn-primary !px-3 !py-1.5" disabled={busy}>Save</button>
-                      <button type="button" className="btn btn-secondary !px-3 !py-1.5" onClick={() => setEditingId(null)}>Cancel</button>
+                      <button type="submit" className="btn btn-primary !px-3 !py-1.5" disabled={busy}>{t("common.save")}</button>
+                      <button type="button" className="btn btn-secondary !px-3 !py-1.5" onClick={() => setEditingId(null)}>{t("common.cancel")}</button>
                     </form>
                   ) : (
                     <>
@@ -213,21 +211,21 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                       </span>
                       {m.isOwner && (
                         <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                          Owner
+                          {t("members.owner")}
                         </span>
                       )}
                       {isMe && alias && (
                         <button
                           type="button"
                           className="cursor-pointer rounded-md px-2 py-0.5 text-xs font-semibold text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                          title="Change how you appear in this group"
+                          title={t("members.renameSelfTooltip")}
                           onClick={() => {
                             setAttachingId(null);
                             setEditingId(alias.id);
                             setEditName(alias.name);
                           }}
                         >
-                          Rename
+                          {t("members.rename")}
                         </button>
                       )}
                       {isOwner && !m.isOwner && (
@@ -236,12 +234,12 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                           className="cursor-pointer rounded-md px-2 py-0.5 text-xs font-semibold text-gray-400 hover:bg-red-50 hover:text-red-500"
                           disabled={busy}
                           onClick={() => {
-                            if (window.confirm(`Remove ${m.name} from the group? Their expense history stays as a virtual member.`)) {
+                            if (window.confirm(t("members.removeConfirm", { name: m.name }))) {
                               void run(() => removeMember(group.id, m.userId)).then(() => reloadInviteData());
                             }
                           }}
                         >
-                          Remove
+                          {t("members.remove")}
                         </button>
                       )}
                     </>
@@ -254,13 +252,13 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
 
         {/* ---- Virtual members ---- */}
         <section>
-          <p className="label">Virtual members ({virtualAliases.length})</p>
+          <p className="label">{t("members.virtualCount", { count: virtualAliases.length })}</p>
           <p className="mb-1 text-xs text-gray-400">
-            People without accounts — you track their share for them. When they join the group,
-            use <span className="font-semibold">Attach</span> to hand their history to their account.
+            {t("members.virtualHint1")} <span className="font-semibold">{t("members.attach")}</span>{" "}
+            {t("members.virtualHint2")}
           </p>
           {virtualAliases.length === 0 && (
-            <p className="text-sm text-gray-400">None yet.</p>
+            <p className="text-sm text-gray-400">{t("members.noneYet")}</p>
           )}
           <ul className="max-h-56 space-y-1 overflow-y-auto">
             {virtualAliases.map((a) => (
@@ -275,8 +273,8 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                     }}
                   >
                     <input className="input !py-1.5" value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus />
-                    <button type="submit" className="btn btn-primary !px-3 !py-1.5" disabled={busy}>Save</button>
-                    <button type="button" className="btn btn-secondary !px-3 !py-1.5" onClick={() => setEditingId(null)}>Cancel</button>
+                    <button type="submit" className="btn btn-primary !px-3 !py-1.5" disabled={busy}>{t("common.save")}</button>
+                    <button type="button" className="btn btn-secondary !px-3 !py-1.5" onClick={() => setEditingId(null)}>{t("common.cancel")}</button>
                   </form>
                 ) : attachingId === a.id ? (
                   <form
@@ -287,9 +285,14 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                       if (!target) return;
                       const merges = target.aliasId !== null;
                       const detail = merges
-                        ? `Their expense histories will be merged into one person named "${a.name}".`
-                        : `"${a.name}" and its history will become their identity in this group.`;
-                      if (!window.confirm(`Attach ${a.name} to ${target.name} (${target.email})? ${detail}`)) return;
+                        ? t("members.attachMerges", { alias: a.name })
+                        : t("members.attachBecomes", { alias: a.name });
+                      const question = t("members.attachConfirm", {
+                        alias: a.name,
+                        name: target.name,
+                        email: target.email,
+                      });
+                      if (!window.confirm(`${question} ${detail}`)) return;
                       if (await run(() => attachAlias(a.id, attachTarget))) setAttachingId(null);
                     }}
                   >
@@ -307,10 +310,10 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                       ))}
                     </select>
                     <button type="submit" className="btn btn-primary !px-3 !py-1.5" disabled={busy || !attachTarget}>
-                      Attach
+                      {t("members.attach")}
                     </button>
                     <button type="button" className="btn btn-secondary !px-3 !py-1.5" onClick={() => setAttachingId(null)}>
-                      Cancel
+                      {t("common.cancel")}
                     </button>
                   </form>
                 ) : (
@@ -321,14 +324,14 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                         <button
                           type="button"
                           className="cursor-pointer rounded-md px-2 py-1 text-xs font-semibold text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                          title="Link this virtual member to a group member's account"
+                          title={t("members.attachTooltip")}
                           onClick={() => {
                             setEditingId(null);
                             setAttachingId(a.id);
                             setAttachTarget(group.members[0]?.userId ?? "");
                           }}
                         >
-                          Attach
+                          {t("members.attach")}
                         </button>
                         <button
                           type="button"
@@ -339,14 +342,14 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                             setEditName(a.name);
                           }}
                         >
-                          Rename
+                          {t("members.rename")}
                         </button>
                         <button
                           type="button"
                           className="cursor-pointer rounded-md px-2 py-1 text-lg leading-none text-gray-300 hover:bg-red-50 hover:text-red-500"
-                          aria-label={`Remove ${a.name}`}
+                          aria-label={t("members.removeAria", { name: a.name })}
                           onClick={() => {
-                            if (window.confirm(`Remove ${a.name} from the group?`)) {
+                            if (window.confirm(t("members.removeAliasConfirm", { name: a.name }))) {
                               void run(() => deleteAlias(a.id));
                             }
                           }}
@@ -370,12 +373,12 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
             >
               <input
                 className="input"
-                placeholder="Add a virtual member…"
+                placeholder={t("members.addVirtualPlaceholder")}
                 value={newVirtualName}
                 onChange={(e) => setNewVirtualName(e.target.value)}
               />
               <button type="submit" className="btn btn-primary shrink-0" disabled={busy || !newVirtualName.trim()}>
-                Add
+                {t("members.add")}
               </button>
             </form>
           )}
@@ -391,12 +394,12 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
               className="btn btn-danger"
               disabled={busy}
               onClick={async () => {
-                if (window.confirm(`Leave "${group.name}"? Your expense history stays as a virtual member.`)) {
+                if (window.confirm(t("members.leaveConfirm", { name: group.name }))) {
                   if (await run(() => leaveGroup(group.id))) router.push("/");
                 }
               }}
             >
-              Leave group
+              {t("members.leaveGroup")}
             </button>
           </div>
         )}

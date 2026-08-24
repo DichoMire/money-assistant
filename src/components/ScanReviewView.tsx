@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { convertScan, saveScan } from "@/app/receipt-actions";
 import { CURRENCIES } from "@/lib/currencies";
+import { countWord } from "@/lib/i18n";
 import { formatCents, parseAmount, parseNumber } from "@/lib/money";
 import { computePersonTotals, type AssignMode, type ConvertItem } from "@/lib/receipt-convert";
 import type { GroupDto, ScanDetailDto, ScanEditInput, ScanItemDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
+import { useT } from "./LocaleProvider";
 import { ScanAssignModal } from "./ScanAssignModal";
 
 const centsToStr = (cents: number) => (cents / 100).toFixed(2);
@@ -77,6 +79,7 @@ const parseOptMoney = (s: string): number | null => (s.trim() === "" ? 0 : parse
 
 export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDetailDto }) {
   const router = useRouter();
+  const t = useT();
   const aliases = group.aliases;
   const allAliasIds = aliases.map((a) => a.id);
   const aliasNames = new Map(aliases.map((a) => [a.id, a.name]));
@@ -111,26 +114,26 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
   const totalCents = parseAmount(totalStr);
 
   let draftError: string | null = null;
-  if (items.length === 0) draftError = "Keep at least one item.";
-  else if (!dateStr) draftError = "Enter a date.";
-  else if (totalCents === null) draftError = "Enter a valid receipt total.";
-  else if (taxCents === null || taxCents < 0) draftError = "Invalid tax amount.";
-  else if (tipCents === null || tipCents < 0) draftError = "Invalid tip amount.";
-  else if (discountsCents === null || discountsCents < 0) draftError = "Invalid discount amount.";
+  if (items.length === 0) draftError = t("scanReview.keepOneItem");
+  else if (!dateStr) draftError = t("scanReview.enterDate");
+  else if (totalCents === null) draftError = t("scanReview.enterValidTotal");
+  else if (taxCents === null || taxCents < 0) draftError = t("scanReview.invalidTax");
+  else if (tipCents === null || tipCents < 0) draftError = t("scanReview.invalidTip");
+  else if (discountsCents === null || discountsCents < 0) draftError = t("scanReview.invalidDiscount");
   else {
     for (const it of items) {
-      const label = it.name.trim() || "an item";
+      const label = it.name.trim() || t("scanReview.anItem");
       if (!it.name.trim()) {
-        draftError = "Every item needs a name.";
+        draftError = t("scanReview.everyItemNeedsName");
         break;
       }
       if (parseAmount(it.totalStr) === null) {
-        draftError = `Invalid price for "${label}".`;
+        draftError = t("scanReview.invalidPriceFor", { name: label });
         break;
       }
       const qty = parseNumber(it.qtyStr);
       if (qty === null || qty <= 0) {
-        draftError = `Invalid quantity for "${label}".`;
+        draftError = t("scanReview.invalidQtyFor", { name: label });
         break;
       }
     }
@@ -162,13 +165,14 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
         convertItems,
         { taxCents: taxCents!, tipCents: tipCents!, discountsCents: discountsCents! },
         currency,
-        aliasNames
+        aliasNames,
+        t
       );
 
   const convertError =
     draftError ??
     (summary && !summary.ok ? summary.error : null) ??
-    (!payerAliasId ? "Select who paid." : null);
+    (!payerAliasId ? t("splitError.selectWhoPaid") : null);
 
   // ----- actions -----
 
@@ -233,12 +237,12 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
         <Link
           href={`/groups/${group.id}/scan`}
           className="cursor-pointer rounded-md px-2 py-1 text-xl leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-          aria-label="Back to receipt upload"
+          aria-label={t("scanReview.backAria")}
         >
           ←
         </Link>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-2xl font-bold text-gray-800">Review receipt</h1>
+          <h1 className="truncate text-2xl font-bold text-gray-800">{t("scanReview.title")}</h1>
           <p className="text-sm text-gray-500">{group.name}</p>
         </div>
         <span
@@ -246,7 +250,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
             isConverted ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"
           }`}
         >
-          {isConverted ? "Converted" : "Draft"}
+          {isConverted ? t("scan.converted") : t("scan.draft")}
         </span>
       </div>
 
@@ -255,17 +259,17 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
         <div className="card space-y-3 px-4 py-4">
           <div className="flex flex-wrap gap-2">
             <div className="min-w-40 flex-1 max-sm:basis-full">
-              <label className="label" htmlFor="scan-merchant">Merchant</label>
+              <label className="label" htmlFor="scan-merchant">{t("scanReview.merchant")}</label>
               <input
                 id="scan-merchant"
                 className="input"
-                placeholder="Store or restaurant"
+                placeholder={t("scanReview.merchantPlaceholder")}
                 value={merchantStr}
                 onChange={(e) => setMerchantStr(e.target.value)}
               />
             </div>
             <div className="w-36 min-w-0 shrink-0 max-sm:flex-1">
-              <label className="label" htmlFor="scan-date">Date</label>
+              <label className="label" htmlFor="scan-date">{t("scanReview.date")}</label>
               <input
                 id="scan-date"
                 type="date"
@@ -275,7 +279,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
               />
             </div>
             <div className="w-24 shrink-0">
-              <label className="label" htmlFor="scan-cur">Currency</label>
+              <label className="label" htmlFor="scan-cur">{t("scanReview.currency")}</label>
               <select
                 id="scan-cur"
                 className="input"
@@ -291,40 +295,39 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
           {/* Four money fields: one row on desktop, a 2×2 grid on phones. */}
           <div className="flex flex-wrap gap-2">
             <div className="w-24 flex-1 max-sm:w-[calc(50%-0.25rem)] max-sm:flex-none">
-              <label className="label" htmlFor="scan-tax">Tax</label>
+              <label className="label" htmlFor="scan-tax">{t("scanReview.tax")}</label>
               <input id="scan-tax" className="input" placeholder="0.00" inputMode="decimal"
                 value={taxStr} onChange={(e) => setTaxStr(e.target.value)} />
             </div>
             <div className="w-24 flex-1 max-sm:w-[calc(50%-0.25rem)] max-sm:flex-none">
-              <label className="label" htmlFor="scan-tip">Tip</label>
+              <label className="label" htmlFor="scan-tip">{t("scanReview.tip")}</label>
               <input id="scan-tip" className="input" placeholder="0.00" inputMode="decimal"
                 value={tipStr} onChange={(e) => setTipStr(e.target.value)} />
             </div>
             <div className="w-24 flex-1 max-sm:w-[calc(50%-0.25rem)] max-sm:flex-none">
-              <label className="label" htmlFor="scan-disc">Discount</label>
+              <label className="label" htmlFor="scan-disc">{t("scanReview.discount")}</label>
               <input id="scan-disc" className="input" placeholder="0.00" inputMode="decimal"
                 value={discountStr} onChange={(e) => setDiscountStr(e.target.value)} />
             </div>
             <div className="w-28 flex-1 max-sm:w-[calc(50%-0.25rem)] max-sm:flex-none">
-              <label className="label" htmlFor="scan-total">Receipt total</label>
+              <label className="label" htmlFor="scan-total">{t("scanReview.receiptTotal")}</label>
               <input id="scan-total" className="input font-semibold" placeholder="0.00" inputMode="decimal"
                 value={totalStr} onChange={(e) => setTotalStr(e.target.value)} />
             </div>
           </div>
           {currency !== group.currency && (
             <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-700">
-              This receipt is in {currency}; balances are kept in {group.currency} using the
-              exchange rate of the transaction date (or the nearest available).
+              {t("scanReview.foreignNote", { currency, groupCurrency: group.currency })}
             </p>
           )}
           <details>
             <summary className="cursor-pointer text-sm font-medium text-gray-500 hover:text-gray-700">
-              Show receipt photo
+              {t("scanReview.showPhoto")}
             </summary>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={`/api/receipts/${scan.id}/image`}
-              alt="Scanned receipt"
+              alt={t("scanReview.photoAlt")}
               loading="lazy"
               className="mt-2 max-h-[70vh] w-full rounded-lg border border-gray-200 object-contain"
             />
@@ -333,16 +336,15 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
 
         {mismatch && (
           <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-            Items + tax/tip − discounts add up to{" "}
-            <strong>{formatCents(computedCents, currency)}</strong>, but the receipt total reads{" "}
-            <strong>{formatCents(totalCents!, currency)}</strong>. Check the items against the
-            photo — the converted expense will use the items&apos; sum.{" "}
+            {t("scanReview.mismatch1")} <strong>{formatCents(computedCents, currency)}</strong>
+            {t("scanReview.mismatch2")} <strong>{formatCents(totalCents!, currency)}</strong>
+            {t("scanReview.mismatch3")}{" "}
             <button
               type="button"
               className="cursor-pointer font-semibold underline"
               onClick={() => setTotalStr(centsToStr(computedCents))}
             >
-              Set total to {formatCents(computedCents, currency)}
+              {t("scanReview.setTotalTo", { amount: formatCents(computedCents, currency) })}
             </button>
           </div>
         )}
@@ -350,10 +352,10 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
         {/* ---- items ---- */}
         <div className="card">
           <div className="hidden gap-2 border-b border-gray-100 px-4 py-2 sm:flex">
-            <span className="label !mb-0 min-w-40 flex-1">Item</span>
-            <span className="label !mb-0 w-14 shrink-0">Qty</span>
-            <span className="label !mb-0 w-24 shrink-0 text-right">Price</span>
-            <span className="label !mb-0 w-44 shrink-0">Who pays</span>
+            <span className="label !mb-0 min-w-40 flex-1">{t("scanReview.item")}</span>
+            <span className="label !mb-0 w-14 shrink-0">{t("scanReview.qty")}</span>
+            <span className="label !mb-0 w-24 shrink-0 text-right">{t("scanReview.price")}</span>
+            <span className="label !mb-0 w-44 shrink-0">{t("scanReview.whoPays")}</span>
             <span className="w-6 shrink-0" />
           </div>
           <ul className="divide-y divide-gray-100">
@@ -365,8 +367,8 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                   <div className="min-w-40 flex-1">
                     <input
                       className="input !py-1.5"
-                      placeholder="Item name"
-                      aria-label="Item name"
+                      placeholder={t("scanReview.itemName")}
+                      aria-label={t("scanReview.itemName")}
                       value={it.name}
                       onChange={(e) => updateItem(it.key, { name: e.target.value })}
                     />
@@ -386,7 +388,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                   <div className="w-14 shrink-0 max-sm:order-1">
                     <input
                       className="input !px-2 !py-1.5 text-right"
-                      aria-label="Quantity"
+                      aria-label={t("scanReview.quantityAria")}
                       inputMode="decimal"
                       value={it.qtyStr}
                       onChange={(e) => updateItem(it.key, { qtyStr: e.target.value })}
@@ -396,8 +398,8 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                     <button
                       type="button"
                       tabIndex={-1}
-                      aria-label="Toggle negative price"
-                      title="Make this a discount (negative) line"
+                      aria-label={t("scanReview.toggleNegAria")}
+                      title={t("scanReview.toggleNegTitle")}
                       className="absolute top-1/2 left-1 -translate-y-1/2 cursor-pointer rounded px-1.5 py-1 text-sm leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-600"
                       onClick={() => updateItem(it.key, { totalStr: toggleSign(it.totalStr) })}
                     >
@@ -406,7 +408,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                     <input
                       className={`input !py-1.5 !pl-7 text-right ${itemCents !== null && itemCents < 0 ? "amount-neg" : ""}`}
                       placeholder="0.00"
-                      aria-label="Price"
+                      aria-label={t("scanReview.priceAria")}
                       inputMode="decimal"
                       value={it.totalStr}
                       onChange={(e) => updateItem(it.key, { totalStr: e.target.value })}
@@ -415,7 +417,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                   <div className="w-44 shrink-0 max-sm:order-2 max-sm:w-full">
                     <select
                       className="input !py-1.5"
-                      aria-label="Who pays for this item"
+                      aria-label={t("scanReview.whoPaysAria")}
                       value={selectValue}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -431,8 +433,11 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                       ))}
                       <option value="__split">
                         {it.assignMode === "equal" || it.assignMode === "exact"
-                          ? `Split · ${it.shareAliasIds.length} ${it.shareAliasIds.length === 1 ? "person" : "people"}`
-                          : "Split between several…"}
+                          ? t("scanReview.splitCount", {
+                              count: it.shareAliasIds.length,
+                              word: countWord(t, it.shareAliasIds.length, "count.person", "count.people"),
+                            })
+                          : t("scanReview.splitBetween")}
                       </option>
                     </select>
                     {(it.assignMode === "equal" || it.assignMode === "exact") && (
@@ -441,14 +446,14 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                         className="mt-0.5 cursor-pointer text-xs text-gray-500 underline hover:text-gray-700"
                         onClick={() => setAssignItemKey(it.key)}
                       >
-                        edit split
+                        {t("scanReview.editSplit")}
                       </button>
                     )}
                   </div>
                   <button
                     type="button"
                     className="cursor-pointer rounded-md px-1.5 py-1 text-lg leading-none text-gray-300 hover:bg-red-50 hover:text-red-500"
-                    aria-label="Remove item"
+                    aria-label={t("scanReview.removeItemAria")}
                     onClick={() => setItems((list) => list.filter((x) => x.key !== it.key))}
                   >
                     &times;
@@ -464,17 +469,17 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
               style={{ color: "var(--brand-dark)" }}
               onClick={() => setItems((list) => [...list, newItem(allAliasIds)])}
             >
-              + Add item
+              {t("scanReview.addItem")}
             </button>
             <p className="text-sm font-semibold text-gray-500">
-              Items: {formatCents(itemsSum, currency)}
+              {t("scanReview.itemsSum", { amount: formatCents(itemsSum, currency) })}
             </p>
           </div>
         </div>
 
         {/* ---- summary ---- */}
         <div className="card space-y-3 px-4 py-4">
-          <p className="label">Summary</p>
+          <p className="label">{t("scanReview.summary")}</p>
           {summary?.ok ? (
             <>
               <ul>
@@ -500,19 +505,17 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                   })}
               </ul>
               <p className="border-t border-gray-100 pt-2 text-right text-sm font-bold text-gray-800">
-                Total: {formatCents(summary.grandTotalCents, currency)}
+                {t("scanReview.total", { amount: formatCents(summary.grandTotalCents, currency) })}
               </p>
             </>
           ) : (
             <p className="text-sm text-gray-400">
-              {summary && !summary.ok
-                ? summary.error
-                : "Complete the receipt details to see who owes what."}
+              {summary && !summary.ok ? summary.error : t("scanReview.completeDetails")}
             </p>
           )}
 
           <div className="flex items-center gap-2 border-t border-gray-100 pt-3">
-            <label className="label !mb-0 shrink-0" htmlFor="scan-payer">Paid by</label>
+            <label className="label !mb-0 shrink-0" htmlFor="scan-payer">{t("scanReview.paidBy")}</label>
             <select
               id="scan-payer"
               className="input max-w-52"
@@ -536,7 +539,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
               onClick={() => void save()}
               disabled={!!busy || !!draftError || !dirty}
             >
-              {busy === "save" ? "Saving…" : dirty ? "Save draft" : "Saved"}
+              {busy === "save" ? t("scanReview.saving") : dirty ? t("scanReview.saveDraft") : t("scanReview.saved")}
             </button>
             <button
               type="button"
@@ -545,10 +548,10 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
               disabled={!!busy || !!convertError}
             >
               {busy === "convert"
-                ? "Converting…"
+                ? t("scanReview.converting")
                 : isConverted
-                  ? "Update linked expense"
-                  : "Convert to expense"}
+                  ? t("scanReview.updateLinked")
+                  : t("scanReview.convertToExpense")}
             </button>
           </div>
         </div>
@@ -556,7 +559,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
 
       {assignItem && (
         <ScanAssignModal
-          itemName={assignItem.name.trim() || "item"}
+          itemName={assignItem.name.trim() || t("scanReview.itemFallback")}
           itemTotalCents={parseAmount(assignItem.totalStr)}
           currency={currency}
           aliases={aliases}

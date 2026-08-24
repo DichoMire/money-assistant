@@ -4,10 +4,11 @@ import Link from "next/link";
 import { useState } from "react";
 import { deleteExpense } from "@/app/actions";
 import { formatDate } from "@/lib/format";
+import { countWord, type TKey } from "@/lib/i18n";
 import { formatCents } from "@/lib/money";
-import { SPLIT_METHOD_LABELS } from "@/lib/split";
 import type { ExpenseDto, GroupDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
+import { useLocale, useT } from "./LocaleProvider";
 import { Modal } from "./Modal";
 
 export function ExpenseDetailModal({
@@ -21,6 +22,8 @@ export function ExpenseDetailModal({
   onEdit: () => void;
   onClose: () => void;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const names = new Map(group.aliases.map((a) => [a.id, a.name]));
@@ -34,16 +37,19 @@ export function ExpenseDetailModal({
       case "percent":
         return `${splitValue}%`;
       case "shares":
-        return `${splitValue} ${splitValue === 1 ? "share" : "shares"}`;
+        return `${splitValue} ${countWord(t, splitValue, "count.share", "count.shares")}`;
       case "adjustment":
-        return `${splitValue >= 0 ? "+" : "−"}${formatCents(Math.abs(splitValue), expense.currency)} adj.`;
+        return `${splitValue >= 0 ? "+" : "−"}${formatCents(Math.abs(splitValue), expense.currency)} ${t("detail.adjSuffix")}`;
       default:
         return null;
     }
   };
 
   const remove = async () => {
-    if (!window.confirm(`Delete this ${isSettlement ? "payment" : "expense"}?`)) return;
+    const message = isSettlement
+      ? t("expenses.deletePaymentConfirm")
+      : t("expenses.deleteExpenseConfirm");
+    if (!window.confirm(message)) return;
     setBusy(true);
     setError(null);
     const result = await deleteExpense(expense.id);
@@ -62,7 +68,7 @@ export function ExpenseDetailModal({
   );
 
   return (
-    <Modal title={isSettlement ? "Payment details" : "Expense details"} onClose={onClose} wide>
+    <Modal title={isSettlement ? t("detail.paymentTitle") : t("detail.expenseTitle")} onClose={onClose} wide>
       <div className="space-y-4">
         <div className="flex items-start gap-3">
           <span
@@ -75,11 +81,16 @@ export function ExpenseDetailModal({
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-lg font-bold text-gray-800">
-              {isSettlement ? "Payment" : expense.description}
+              {isSettlement ? t("expenses.payment") : expense.description}
             </p>
             <p className="text-sm text-gray-500">
-              {formatDate(expense.date)}
-              {!isSettlement && <> · split {SPLIT_METHOD_LABELS[expense.splitMethod]}</>}
+              {formatDate(expense.date, locale)}
+              {!isSettlement && (
+                <>
+                  {" · "}
+                  {t("detail.split", { label: t(`splitMethod.${expense.splitMethod}` as TKey) })}
+                </>
+              )}
               {expense.scanId && (
                 <>
                   {" · "}
@@ -88,7 +99,7 @@ export function ExpenseDetailModal({
                     className="underline hover:text-gray-700"
                     onClick={onClose}
                   >
-                    View receipt
+                    {t("detail.viewReceipt")}
                   </Link>
                 </>
               )}
@@ -102,17 +113,19 @@ export function ExpenseDetailModal({
               (expense.convertedCents !== null ? (
                 <p className="text-xs text-gray-400">
                   ≈ {formatCents(expense.convertedCents, group.currency)}
-                  {expense.rateDate && <> · rate from {formatDate(expense.rateDate)}</>}
+                  {expense.rateDate && (
+                    <> · {t("detail.rateFrom", { date: formatDate(expense.rateDate, locale) })}</>
+                  )}
                 </p>
               ) : (
-                <p className="text-xs font-semibold text-red-500">no exchange rate</p>
+                <p className="text-xs font-semibold text-red-500">{t("detail.noRate")}</p>
               ))}
           </div>
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <section className="rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
-            <p className="label">Paid by</p>
+            <p className="label">{t("detail.paidBy")}</p>
             <ul>
               {expense.payers.map((p) =>
                 personRow(p.aliasId, formatCents(p.paidCents, expense.currency))
@@ -120,7 +133,7 @@ export function ExpenseDetailModal({
             </ul>
           </section>
           <section className="rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
-            <p className="label">{isSettlement ? "Received by" : "Who owes"}</p>
+            <p className="label">{isSettlement ? t("detail.receivedBy") : t("detail.whoOwes")}</p>
             <ul>
               {expense.shares.map((s) =>
                 personRow(
@@ -137,14 +150,14 @@ export function ExpenseDetailModal({
 
         <div className="flex items-center justify-between border-t border-gray-100 pt-4">
           <button type="button" className="btn btn-danger" onClick={() => void remove()} disabled={busy}>
-            {busy ? "Deleting…" : "Delete"}
+            {busy ? t("common.deleting") : t("common.delete")}
           </button>
           <div className="flex gap-2">
             <button type="button" className="btn btn-secondary" onClick={onClose}>
-              Close
+              {t("common.close")}
             </button>
             <button type="button" className="btn btn-primary" onClick={onEdit} disabled={busy}>
-              Edit
+              {t("common.edit")}
             </button>
           </div>
         </div>
