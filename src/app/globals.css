@@ -61,6 +61,17 @@ body {
   border-color: var(--brand);
   box-shadow: 0 0 0 3px rgb(28 194 159 / 0.18);
 }
+/* Native selects ignore line-height when sizing (font metrics only), so they
+   render ~2px shorter than sibling inputs. appearance:none makes them size
+   like a normal box; the chevron is redrawn since the native one goes too. */
+select.input {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="%236b7280" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+  background-repeat: no-repeat;
+  background-position: right 0.625rem center;
+  padding-right: 1.75rem;
+}
 /* iOS Safari renders date inputs as a system control with an intrinsic
    width/height and a centered value, so they overflow flex rows and sit
    misaligned next to normal inputs. Strip the native appearance so the
@@ -78,6 +89,23 @@ input[type="date"].input::-webkit-date-and-time-value {
 
 .label {
   @apply mb-1 block text-xs font-semibold tracking-wide text-gray-500 uppercase;
+}
+
+/* Toggle pills for people (scan review participants & per-item assignment). */
+.chip {
+  @apply inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-gray-300 bg-white py-0.5 pr-2.5 pl-1 text-xs font-medium text-gray-500 transition-colors;
+}
+.chip:hover {
+  @apply bg-gray-50;
+}
+.chip-on {
+  border-color: var(--brand);
+  background: rgb(28 194 159 / 0.12);
+  color: var(--brand-dark);
+  @apply font-semibold;
+}
+.chip-on:hover {
+  background: rgb(28 194 159 / 0.2);
 }
 
 .amount-pos {

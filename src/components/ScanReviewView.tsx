@@ -6,11 +6,11 @@ import { useState } from "react";
 import { convertScan, saveScan } from "@/app/receipt-actions";
 import { CURRENCIES } from "@/lib/currencies";
 import { countWord } from "@/lib/i18n";
-import { formatCents, parseAmount, parseNumber } from "@/lib/money";
+import { formatCents, parseAmount } from "@/lib/money";
 import { computePersonTotals, type AssignMode, type ConvertItem } from "@/lib/receipt-convert";
 import type { GroupDto, ScanDetailDto, ScanEditInput, ScanItemDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
-import { ConfirmModal } from "./ConfirmModal";
+import { ConfirmModal, useConfirm } from "./ConfirmModal";
 import { useT } from "./LocaleProvider";
 import { ScanAssignModal } from "./ScanAssignModal";
 
@@ -24,7 +24,9 @@ type EditableItem = {
   key: string;
   rawText: string | null;
   name: string;
-  qtyStr: string;
+  /* Parsed quantity is display-only ("2 × 1,50" hint) — the model needs it to
+     reconcile receipt lines, but the UI edits only the line total. */
+  quantity: number;
   totalStr: string;
   unitPriceCents: number | null;
   category: string | null;
@@ -41,7 +43,7 @@ function fromDto(item: ScanItemDto, allAliasIds: string[]): EditableItem {
     key: item.id,
     rawText: item.rawText,
     name: item.name,
-    qtyStr: String(item.quantity),
+    quantity: item.quantity,
     totalStr: centsToStr(item.totalCents),
     unitPriceCents: item.unitPriceCents,
     category: item.category,
@@ -58,7 +60,7 @@ function newItem(allAliasIds: string[]): EditableItem {
     key: crypto.randomUUID(),
     rawText: null,
     name: "",
-    qtyStr: "1",
+    quantity: 1,
     totalStr: "",
     unitPriceCents: null,
     category: null,
@@ -78,6 +80,10 @@ const toggleSign = (s: string) => {
 /** Parse an optional money field ("" counts as 0); null = invalid input. */
 const parseOptMoney = (s: string): number | null => (s.trim() === "" ? 0 : parseAmount(s));
 
+/* Up to this many active participants each item gets inline toggle chips;
+   beyond it, a compact button opening the assign sheet. */
+const CHIP_LIMIT = 5;
+
 export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDetailDto }) {
   const router = useRouter();
   const t = useT();
@@ -95,10 +101,15 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
   const [discountStr, setDiscountStr] = useState(centsToOptStr(scan.discountsCents));
   const [totalStr, setTotalStr] = useState(centsToStr(scan.totalCents));
   const [payerAliasId, setPayerAliasId] = useState(myAliasId ?? aliases[0]?.id ?? "");
+  const [participantIds, setParticipantIds] = useState<string[]>(allAliasIds);
   const [assignItemKey, setAssignItemKey] = useState<string | null>(null);
   const [removeItemKey, setRemoveItemKey] = useState<string | null>(null);
   const [busy, setBusy] = useState<"save" | "convert" | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
+  const { ask, confirmElement } = useConfirm();
+
+  const activeAliases = aliases.filter((a) => participantIds.includes(a.id));
+  const useChips = activeAliases.length <= CHIP_LIMIT;
 
   const serialize = (its: EditableItem[]) =>
     JSON.stringify({ merchantStr, dateStr, currency, taxStr, tipStr, discountStr, totalStr, its });
@@ -107,6 +118,60 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
 
   const updateItem = (key: string, patch: Partial<EditableItem>) =>
     setItems((list) => list.map((it) => (it.key === key ? { ...it, ...patch } : it)));
+
+  /* Chip toggles rewrite the share list; exact amounts don't survive a
+     membership change, so any chip tap falls back to equal (or single). */
+  const setItemShares = (key: string, next: string[]) =>
+    updateItem(key, {
+      assignMode: next.length === 1 ? "single" : "equal",
+      shareAliasIds: next,
+      exactVals: {},
+    });
+
+  const toggleParticipant = (id: string) => {
+    if (participantIds.includes(id)) {
+      if (participantIds.length === 1) return;
+      const strip = () => {
+        setParticipantIds((ids) => ids.filter((x) => x !== id));
+        setItems((list) =>
+          list.map((it) => {
+            if (!it.shareAliasIds.includes(id)) return it;
+            const shareAliasIds = it.shareAliasIds.filter((x) => x !== id);
+            return {
+              ...it,
+              shareAliasIds,
+              assignMode: shareAliasIds.length === 1 ? "single" : "equal",
+              exactVals: {},
+            };
+          })
+        );
+        if (payerAliasId === id) setPayerAliasId(participantIds.find((x) => x !== id) ?? "");
+      };
+      const affected = items.filter((it) => it.shareAliasIds.includes(id)).length;
+      if (affected === 0) strip();
+      else
+        ask(
+          t("scanReview.removeParticipantConfirm", {
+            name: aliasNames.get(id) ?? "?",
+            count: affected,
+            word: countWord(t, affected, "count.item", "count.items"),
+          }),
+          strip,
+          t("common.remove")
+        );
+    } else {
+      const prev = participantIds;
+      setParticipantIds([...prev, id]);
+      // Items shared by "everyone" follow the participant set as it grows.
+      setItems((list) =>
+        list.map((it) =>
+          it.assignMode === "equal" && prev.every((pid) => it.shareAliasIds.includes(pid))
+            ? { ...it, shareAliasIds: [...it.shareAliasIds, id] }
+            : it
+        )
+      );
+    }
+  };
 
   // ----- validation & math (all derived, recomputed every render) -----
 
@@ -131,11 +196,6 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
       }
       if (parseAmount(it.totalStr) === null) {
         draftError = t("scanReview.invalidPriceFor", { name: label });
-        break;
-      }
-      const qty = parseNumber(it.qtyStr);
-      if (qty === null || qty <= 0) {
-        draftError = t("scanReview.invalidQtyFor", { name: label });
         break;
       }
     }
@@ -191,7 +251,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
       position,
       rawText: it.rawText,
       name: it.name.trim(),
-      quantity: parseNumber(it.qtyStr)!,
+      quantity: it.quantity,
       unitPriceCents: it.unitPriceCents,
       totalCents: parseAmount(it.totalStr)!,
       category: it.category,
@@ -355,20 +415,55 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
 
         {/* ---- items ---- */}
         <div className="card">
+          {aliases.length > 1 && (
+            /* Who was at this dinner — item controls below only offer these people. */
+            <div className="border-b border-gray-100 px-4 py-3">
+              <p className="label !mb-1.5">{t("scanReview.participants")}</p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {aliases.map((a) => {
+                  const on = participantIds.includes(a.id);
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      className={`chip ${on ? "chip-on" : ""}`}
+                      onClick={() => toggleParticipant(a.id)}
+                    >
+                      <span className={on ? "" : "opacity-50 grayscale"}>
+                        <Avatar id={a.id} name={a.name} size={18} />
+                      </span>
+                      {a.name}
+                    </button>
+                  );
+                })}
+                {participantIds.length < aliases.length && (
+                  <button
+                    type="button"
+                    className="cursor-pointer text-xs font-semibold underline"
+                    style={{ color: "var(--brand-dark)" }}
+                    onClick={() => setParticipantIds(allAliasIds)}
+                  >
+                    {t("scanReview.selectAll")}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           <div className="hidden gap-2 border-b border-gray-100 px-4 py-2 sm:flex">
             <span className="label !mb-0 min-w-40 flex-1">{t("scanReview.item")}</span>
-            <span className="label !mb-0 w-14 shrink-0 text-right">{t("scanReview.qty")}</span>
-            <span className="label !mb-0 w-24 shrink-0 text-right">{t("scanReview.price")}</span>
-            <span className="label !mb-0 w-44 shrink-0">{t("scanReview.whoPays")}</span>
+            <span className="label !mb-0 w-28 shrink-0 text-right">{t("scanReview.price")}</span>
             <span className="w-6 shrink-0" />
           </div>
           <ul className="divide-y divide-gray-100">
             {items.map((it) => {
               const itemCents = parseAmount(it.totalStr);
-              const selectValue = it.assignMode === "single" ? it.shareAliasIds[0] : "__split";
+              const sharers = activeAliases.filter((a) => it.shareAliasIds.includes(a.id));
+              const allOn = activeAliases.length > 0 && sharers.length === activeAliases.length;
               return (
                 <li key={it.key} className="flex flex-wrap items-start gap-2 px-4 py-3">
-                  <div className="min-w-40 flex-1">
+                  {/* One line everywhere: name shrinks, the price keeps a fixed
+                      width that always fits "123.45". */}
+                  <div className="min-w-0 flex-1 sm:min-w-40">
                     <input
                       className="input !py-1.5"
                       placeholder={t("scanReview.itemName")}
@@ -381,25 +476,13 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                         {it.rawText}
                       </p>
                     )}
-                    {it.unitPriceCents !== null && (parseNumber(it.qtyStr) ?? 1) !== 1 && (
+                    {it.unitPriceCents !== null && it.quantity !== 1 && (
                       <p className="mt-0.5 text-[11px] text-gray-400">
-                        {it.qtyStr} × {formatCents(it.unitPriceCents, currency)}
+                        {it.quantity} × {formatCents(it.unitPriceCents, currency)}
                       </p>
                     )}
                   </div>
-                  {/* Phone layout via order utilities: name on the first line,
-                      qty + sign + price + remove on the second, assignment
-                      full-width below. */}
-                  <div className="w-14 shrink-0 max-sm:order-1">
-                    <input
-                      className="input !px-2 !py-1.5 text-right"
-                      aria-label={t("scanReview.quantityAria")}
-                      inputMode="decimal"
-                      value={it.qtyStr}
-                      onChange={(e) => updateItem(it.key, { qtyStr: e.target.value })}
-                    />
-                  </div>
-                  <div className="flex w-24 shrink-0 max-sm:order-1 max-sm:flex-1">
+                  <div className="flex w-28 shrink-0">
                     <button
                       type="button"
                       tabIndex={-1}
@@ -423,50 +506,94 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                       onChange={(e) => updateItem(it.key, { totalStr: e.target.value })}
                     />
                   </div>
-                  <div className="w-44 shrink-0 max-sm:order-2 max-sm:w-full">
-                    <select
-                      className="input !py-1.5"
-                      aria-label={t("scanReview.whoPaysAria")}
-                      value={selectValue}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        if (v === "__split") {
-                          setAssignItemKey(it.key);
-                        } else {
-                          updateItem(it.key, { assignMode: "single", shareAliasIds: [v], exactVals: {} });
-                        }
-                      }}
-                    >
-                      {aliases.map((a) => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
-                      ))}
-                      <option value="__split">
-                        {it.assignMode === "equal" || it.assignMode === "exact"
-                          ? t("scanReview.splitCount", {
-                              count: it.shareAliasIds.length,
-                              word: countWord(t, it.shareAliasIds.length, "count.person", "count.people"),
-                            })
-                          : t("scanReview.splitBetween")}
-                      </option>
-                    </select>
-                    {(it.assignMode === "equal" || it.assignMode === "exact") && (
-                      <button
-                        type="button"
-                        className="mt-0.5 cursor-pointer text-xs text-gray-500 underline hover:text-gray-700"
-                        onClick={() => setAssignItemKey(it.key)}
-                      >
-                        {t("scanReview.editSplit")}
-                      </button>
-                    )}
-                  </div>
                   <button
                     type="button"
-                    className="w-6 shrink-0 cursor-pointer rounded-md py-1 text-center text-lg leading-none text-red-400 hover:bg-red-50 hover:text-red-600 max-sm:order-1"
+                    className="mt-1.5 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-red-400 transition-colors hover:bg-red-50 hover:text-red-600"
                     aria-label={t("scanReview.removeItemAria")}
                     onClick={() => setRemoveItemKey(it.key)}
                   >
-                    &times;
+                    <svg
+                      viewBox="0 0 10 10"
+                      className="h-2.5 w-2.5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      aria-hidden
+                    >
+                      <path d="M1 1l8 8M9 1L1 9" />
+                    </svg>
                   </button>
+                  {/* Assignment line: toggle chips for small crowds, a button
+                      opening the assign sheet for big ones. */}
+                  <div className="flex w-full flex-wrap items-center gap-1.5">
+                    {useChips ? (
+                      <>
+                        <button
+                          type="button"
+                          className={`chip !pl-2.5 ${allOn ? "chip-on" : ""}`}
+                          onClick={() => setItemShares(it.key, allOn ? [] : participantIds)}
+                        >
+                          {t("scanReview.everyone")}
+                        </button>
+                        {activeAliases.map((a) => {
+                          const on = it.shareAliasIds.includes(a.id);
+                          return (
+                            <button
+                              key={a.id}
+                              type="button"
+                              className={`chip ${on ? "chip-on" : ""}`}
+                              onClick={() =>
+                                setItemShares(
+                                  it.key,
+                                  on
+                                    ? it.shareAliasIds.filter((x) => x !== a.id)
+                                    : [...it.shareAliasIds, a.id]
+                                )
+                              }
+                            >
+                              <span className={on ? "" : "opacity-50 grayscale"}>
+                                <Avatar id={a.id} name={a.name} size={18} />
+                              </span>
+                              {a.name}
+                            </button>
+                          );
+                        })}
+                        <button
+                          type="button"
+                          className={`chip !px-2.5 ${it.assignMode === "exact" ? "chip-on" : ""}`}
+                          onClick={() => setAssignItemKey(it.key)}
+                        >
+                          {t("assign.exactAmounts")}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="chip !py-1"
+                        aria-label={t("scanReview.whoPaysAria")}
+                        onClick={() => setAssignItemKey(it.key)}
+                      >
+                        {sharers.length > 0 && (
+                          <span className="flex">
+                            {sharers.slice(0, 3).map((a, i) => (
+                              <span key={a.id} className={i > 0 ? "-ml-1.5" : ""}>
+                                <Avatar id={a.id} name={a.name} size={18} />
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                        {sharers.length === 0
+                          ? t("scanReview.choosePeople")
+                          : sharers.length === 1
+                            ? sharers[0].name
+                            : t("scanReview.splitCount", {
+                                count: sharers.length,
+                                word: countWord(t, sharers.length, "count.person", "count.people"),
+                              })}
+                      </button>
+                    )}
+                  </div>
                 </li>
               );
             })}
@@ -476,7 +603,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
               type="button"
               className="cursor-pointer text-sm font-semibold hover:underline"
               style={{ color: "var(--brand-dark)" }}
-              onClick={() => setItems((list) => [...list, newItem(allAliasIds)])}
+              onClick={() => setItems((list) => [...list, newItem(participantIds)])}
             >
               {t("scanReview.addItem")}
             </button>
@@ -531,7 +658,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
               value={payerAliasId}
               onChange={(e) => setPayerAliasId(e.target.value)}
             >
-              {aliases.map((a) => (
+              {activeAliases.map((a) => (
                 <option key={a.id} value={a.id}>{a.name}</option>
               ))}
             </select>
@@ -571,13 +698,13 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
           itemName={assignItem.name.trim() || t("scanReview.itemFallback")}
           itemTotalCents={parseAmount(assignItem.totalStr)}
           currency={currency}
-          aliases={aliases}
+          aliases={activeAliases}
           initialMode={assignItem.assignMode === "exact" ? "exact" : "equal"}
           initialSelected={assignItem.shareAliasIds}
           initialExactVals={assignItem.exactVals}
           onDone={(mode, selectedIds, exactVals) => {
             updateItem(assignItem.key, {
-              assignMode: mode,
+              assignMode: mode === "equal" && selectedIds.length === 1 ? "single" : mode,
               shareAliasIds: selectedIds,
               exactVals,
             });
@@ -598,6 +725,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
           onClose={() => setRemoveItemKey(null)}
         />
       )}
+      {confirmElement}
     </div>
   );
 }

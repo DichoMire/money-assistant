@@ -105,6 +105,24 @@ export function ScanAssignModal({
           {mode === "equal" ? t("assign.equalHint") : t("assign.exactHint")}
         </p>
 
+        <div className="flex gap-4 px-2 text-xs">
+          <button
+            type="button"
+            className="cursor-pointer font-semibold underline"
+            style={{ color: "var(--brand-dark)" }}
+            onClick={() => setSelected(Object.fromEntries(aliases.map((a) => [a.id, true])))}
+          >
+            {t("scanReview.selectAll")}
+          </button>
+          <button
+            type="button"
+            className="cursor-pointer text-gray-500 underline hover:text-gray-700"
+            onClick={() => setSelected({})}
+          >
+            {t("scanReview.clearAll")}
+          </button>
+        </div>
+
         <div className="max-h-64 space-y-1 overflow-y-auto">
           {aliases.map((a) => {
             const isSelected = !!selected[a.id];
