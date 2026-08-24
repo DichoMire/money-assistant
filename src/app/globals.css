@@ -61,6 +61,20 @@ body {
   border-color: var(--brand);
   box-shadow: 0 0 0 3px rgb(28 194 159 / 0.18);
 }
+/* iOS Safari renders date inputs as a system control with an intrinsic
+   width/height and a centered value, so they overflow flex rows and sit
+   misaligned next to normal inputs. Strip the native appearance so the
+   .input box model applies. */
+input[type="date"].input {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  min-height: calc(1.25rem + 1rem + 2px); /* line-height + py-2 + borders */
+}
+input[type="date"].input::-webkit-date-and-time-value {
+  text-align: left;
+  line-height: 1.25rem;
+}
 
 .label {
   @apply mb-1 block text-xs font-semibold tracking-wide text-gray-500 uppercase;

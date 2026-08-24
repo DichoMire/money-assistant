@@ -30,7 +30,10 @@ type EditableItem = {
   exactVals: Values;
 };
 
-function fromDto(item: ScanItemDto): EditableItem {
+/* Unassigned items (fresh scans, older drafts) default to an equal split
+   between everyone; the UI no longer offers an "unassigned" state. */
+function fromDto(item: ScanItemDto, allAliasIds: string[]): EditableItem {
+  const unassigned = item.assignMode === "unassigned";
   return {
     key: item.id,
     rawText: item.rawText,
@@ -39,15 +42,15 @@ function fromDto(item: ScanItemDto): EditableItem {
     totalStr: centsToStr(item.totalCents),
     unitPriceCents: item.unitPriceCents,
     category: item.category,
-    assignMode: item.assignMode,
-    shareAliasIds: item.shares.map((s) => s.aliasId),
+    assignMode: unassigned ? "equal" : item.assignMode,
+    shareAliasIds: unassigned ? allAliasIds : item.shares.map((s) => s.aliasId),
     exactVals: Object.fromEntries(
       item.shares.filter((s) => s.exactCents !== null).map((s) => [s.aliasId, centsToStr(s.exactCents!)])
     ),
   };
 }
 
-function newItem(): EditableItem {
+function newItem(allAliasIds: string[]): EditableItem {
   return {
     key: crypto.randomUUID(),
     rawText: null,
@@ -56,11 +59,18 @@ function newItem(): EditableItem {
     totalStr: "",
     unitPriceCents: null,
     category: null,
-    assignMode: "unassigned",
-    shareAliasIds: [],
+    assignMode: "equal",
+    shareAliasIds: allAliasIds,
     exactVals: {},
   };
 }
+
+/* The iOS decimal keypad has no minus key, so negative prices (discount
+   lines) get a ± toggle button instead. */
+const toggleSign = (s: string) => {
+  const t = s.trim();
+  return t.startsWith("-") ? t.slice(1) : `-${t}`;
+};
 
 /** Parse an optional money field ("" counts as 0); null = invalid input. */
 const parseOptMoney = (s: string): number | null => (s.trim() === "" ? 0 : parseAmount(s));
@@ -68,10 +78,11 @@ const parseOptMoney = (s: string): number | null => (s.trim() === "" ? 0 : parse
 export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDetailDto }) {
   const router = useRouter();
   const aliases = group.aliases;
+  const allAliasIds = aliases.map((a) => a.id);
   const aliasNames = new Map(aliases.map((a) => [a.id, a.name]));
   const myAliasId = group.members.find((m) => m.userId === group.myUserId)?.aliasId ?? null;
 
-  const [items, setItems] = useState<EditableItem[]>(() => scan.items.map(fromDto));
+  const [items, setItems] = useState<EditableItem[]>(() => scan.items.map((it) => fromDto(it, allAliasIds)));
   const [merchantStr, setMerchantStr] = useState(scan.merchant ?? "");
   const [dateStr, setDateStr] = useState(scan.date);
   const [currency, setCurrency] = useState(scan.currency);
@@ -86,7 +97,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
 
   const serialize = (its: EditableItem[]) =>
     JSON.stringify({ merchantStr, dateStr, currency, taxStr, tipStr, discountStr, totalStr, its });
-  const [snapshot, setSnapshot] = useState<string>(() => serialize(scan.items.map(fromDto)));
+  const [snapshot, setSnapshot] = useState<string>(() => serialize(scan.items.map((it) => fromDto(it, allAliasIds))));
   const dirty = serialize(items) !== snapshot;
 
   const updateItem = (key: string, patch: Partial<EditableItem>) =>
@@ -154,9 +165,6 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
         aliasNames
       );
 
-  const unassignedItems = items.filter(
-    (it) => it.assignMode === "unassigned" && parseAmount(it.totalStr) !== 0
-  );
   const convertError =
     draftError ??
     (summary && !summary.ok ? summary.error : null) ??
@@ -211,15 +219,6 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
     setServerError(result.error);
   };
 
-  const assignRemainingToEveryone = () =>
-    setItems((list) =>
-      list.map((it) =>
-        it.assignMode === "unassigned" && parseAmount(it.totalStr) !== 0
-          ? { ...it, assignMode: "equal", shareAliasIds: aliases.map((a) => a.id), exactVals: {} }
-          : it
-      )
-    );
-
   const assignItem = items.find((it) => it.key === assignItemKey) ?? null;
   const isConverted = scan.expenseId !== null;
 
@@ -265,7 +264,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                 onChange={(e) => setMerchantStr(e.target.value)}
               />
             </div>
-            <div className="w-36 shrink-0 max-sm:flex-1">
+            <div className="w-36 min-w-0 shrink-0 max-sm:flex-1">
               <label className="label" htmlFor="scan-date">Date</label>
               <input
                 id="scan-date"
@@ -360,12 +359,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
           <ul className="divide-y divide-gray-100">
             {items.map((it) => {
               const itemCents = parseAmount(it.totalStr);
-              const selectValue =
-                it.assignMode === "single"
-                  ? it.shareAliasIds[0]
-                  : it.assignMode === "unassigned"
-                    ? ""
-                    : "__split";
+              const selectValue = it.assignMode === "single" ? it.shareAliasIds[0] : "__split";
               return (
                 <li key={it.key} className="flex flex-wrap items-start gap-2 px-4 py-3">
                   <div className="min-w-40 flex-1">
@@ -398,9 +392,19 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                       onChange={(e) => updateItem(it.key, { qtyStr: e.target.value })}
                     />
                   </div>
-                  <div className="w-24 shrink-0 max-sm:order-1 max-sm:flex-1">
+                  <div className="relative w-24 shrink-0 max-sm:order-1 max-sm:flex-1">
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      aria-label="Toggle negative price"
+                      title="Make this a discount (negative) line"
+                      className="absolute top-1/2 left-1 -translate-y-1/2 cursor-pointer rounded px-1.5 py-1 text-sm leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                      onClick={() => updateItem(it.key, { totalStr: toggleSign(it.totalStr) })}
+                    >
+                      ±
+                    </button>
                     <input
-                      className={`input !py-1.5 text-right ${itemCents !== null && itemCents < 0 ? "amount-neg" : ""}`}
+                      className={`input !py-1.5 !pl-7 text-right ${itemCents !== null && itemCents < 0 ? "amount-neg" : ""}`}
                       placeholder="0.00"
                       aria-label="Price"
                       inputMode="decimal"
@@ -415,16 +419,13 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                       value={selectValue}
                       onChange={(e) => {
                         const v = e.target.value;
-                        if (v === "") {
-                          updateItem(it.key, { assignMode: "unassigned", shareAliasIds: [], exactVals: {} });
-                        } else if (v === "__split") {
+                        if (v === "__split") {
                           setAssignItemKey(it.key);
                         } else {
                           updateItem(it.key, { assignMode: "single", shareAliasIds: [v], exactVals: {} });
                         }
                       }}
                     >
-                      <option value="">Assign to…</option>
                       {aliases.map((a) => (
                         <option key={a.id} value={a.id}>{a.name}</option>
                       ))}
@@ -461,7 +462,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
               type="button"
               className="cursor-pointer text-sm font-semibold hover:underline"
               style={{ color: "var(--brand-dark)" }}
-              onClick={() => setItems((list) => [...list, newItem()])}
+              onClick={() => setItems((list) => [...list, newItem(allAliasIds)])}
             >
               + Add item
             </button>
@@ -474,19 +475,6 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
         {/* ---- summary ---- */}
         <div className="card space-y-3 px-4 py-4">
           <p className="label">Summary</p>
-          {unassignedItems.length > 0 && (
-            <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-              {unassignedItems.length} {unassignedItems.length === 1 ? "item" : "items"} not
-              assigned yet.{" "}
-              <button
-                type="button"
-                className="cursor-pointer font-semibold underline"
-                onClick={assignRemainingToEveryone}
-              >
-                Split the rest between everyone
-              </button>
-            </div>
-          )}
           {summary?.ok ? (
             <>
               <ul>
@@ -519,7 +507,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
             <p className="text-sm text-gray-400">
               {summary && !summary.ok
                 ? summary.error
-                : "Assign the items to see who owes what."}
+                : "Complete the receipt details to see who owes what."}
             </p>
           )}
 
