@@ -21,7 +21,8 @@
     "next": "15.5.23",
     "next-auth": "^5.0.0-beta.32",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
@@ -29,6 +30,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/ws": "^8.18.1",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "15.5.23",

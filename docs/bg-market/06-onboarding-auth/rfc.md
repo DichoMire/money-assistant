@@ -1,5 +1,7 @@
 # RFC 06 — Onboarding & Auth: Magic Links, First-Run Flow, Invite Sharing & Account Settings
 
+> **Status update (2026-08-24):** implemented subsets — Web Share invite button (stage 1), template chips + inline first-run add-people (stage 3), minimal /settings page (stage 5, language + leva toggle only); the rest outstanding. Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
+
 > **Status:** Proposed · **Priority: P1** (stages 3.e/3.b) **– P2** (rest) — the invite
 > loop is the app's only growth channel; auth breadth and first-run gate every acquisition.
 > **Audience:** a future LLM implementer with full repo access. Read

@@ -14,6 +14,15 @@ export function formatDate(dateStr: string, locale: Locale = "en"): string {
   return locale === "bg" ? `${label} ${y}` : `${label}, ${y}`;
 }
 
+/**
+ * Today's date (YYYY-MM-DD) in the device's local timezone — a UTC date is
+ * yesterday for Bulgarian users between 00:00 and 03:00, exactly when dinner
+ * expenses get logged. en-CA yields the ISO shape directly.
+ */
+export function localTodayString(): string {
+  return new Intl.DateTimeFormat("en-CA").format(new Date());
+}
+
 const AVATAR_COLORS = [
   "#0ea5e9", "#8b5cf6", "#f59e0b", "#ef4444", "#10b981",
   "#ec4899", "#6366f1", "#14b8a6", "#f97316", "#84cc16",

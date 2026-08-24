@@ -1,5 +1,7 @@
 # RFC 04 — Receipt Scanning: Paid Models, Bulgarian Eras, Eval Harness, Unit Splits, Metering & Retention
 
+> **Status update (2026-08-24):** stage 1 was implemented (paid model defaults) and **reverted the same day by owner decision** — the free-model ladder is back and this RFC is fully outstanding. Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
+
 > **Status:** Proposed · **Priority: P1 — blocks real-user launch and is the monetization foundation**
 > **Audience:** a future LLM implementer with full repo access. Read
 > [research.md](research.md) and [00-current-state-audit.md §2](../00-current-state-audit.md)

@@ -17,6 +17,7 @@ export function ExpenseList({
 }) {
   const t = useT();
   const locale = useLocale();
+  const money = (cents: number, currency: string) => formatCents(cents, currency, locale);
   const { ask, confirmElement } = useConfirm();
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const names = new Map(data.aliases.map((a) => [a.id, a.name]));
@@ -34,7 +35,7 @@ export function ExpenseList({
   };
 
   const remove = (expense: ExpenseDto) => {
-    const amount = formatCents(expense.amountCents, expense.currency);
+    const amount = money(expense.amountCents, expense.currency);
     const message =
       expense.kind === "settlement"
         ? t("expenses.deletePaymentConfirm", {
@@ -77,11 +78,11 @@ export function ExpenseList({
             : e.payers.length === 1
               ? t("expenses.paidAmount", {
                   name: name(e.payers[0].aliasId),
-                  amount: formatCents(e.amountCents, e.currency),
+                  amount: money(e.amountCents, e.currency),
                 })
               : t("expenses.paidMulti", {
                   count: e.payers.length,
-                  amount: formatCents(e.amountCents, e.currency),
+                  amount: money(e.amountCents, e.currency),
                 });
         return (
           <button
@@ -125,7 +126,7 @@ export function ExpenseList({
                     <span
                       className={`block text-sm font-bold ${iOwe ? "amount-neg" : "amount-pos"}`}
                     >
-                      {formatCents(Math.abs(impact), e.currency)}
+                      {money(Math.abs(impact), e.currency)}
                     </span>
                   </>
                 )}
@@ -133,7 +134,7 @@ export function ExpenseList({
             )}
             <span className="shrink-0 text-right">
               <span className="block text-sm font-bold text-gray-800">
-                {formatCents(e.amountCents, e.currency)}
+                {money(e.amountCents, e.currency)}
               </span>
               {foreign &&
                 (e.convertedCents !== null ? (
@@ -145,7 +146,7 @@ export function ExpenseList({
                         : undefined
                     }
                   >
-                    ≈ {formatCents(e.convertedCents, data.currency)}
+                    ≈ {money(e.convertedCents, data.currency)}
                   </span>
                 ) : (
                   <span className="block text-xs font-semibold text-red-500">{t("expenses.noRate")}</span>
@@ -159,7 +160,7 @@ export function ExpenseList({
                     {iOwe ? t("expenses.youOwe") : t("expenses.youLent")}
                   </span>
                   <span className="block text-xs font-bold">
-                    {formatCents(Math.abs(impact), e.currency)}
+                    {money(Math.abs(impact), e.currency)}
                   </span>
                 </span>
               )}

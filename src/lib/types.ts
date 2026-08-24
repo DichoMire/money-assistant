@@ -51,10 +51,12 @@ export type ExpenseDto = {
 export type RatesInfo = {
   latestDate: string | null;
   stale: boolean;
-  /** True when at least one expense is in a currency other than the group's. */
+  /** True when some expense needs an ECB rate (fixed BGN/HRK legs don't). */
   needsConversion: boolean;
   /** True when some expense could not be converted at all (no rates stored). */
   missingRate: boolean;
+  /** Expenses excluded from the balance math because they couldn't convert. */
+  excludedCount: number;
 };
 
 export type GroupSummary = {
@@ -66,6 +68,8 @@ export type GroupSummary = {
   expenseCount: number;
   memberCount: number;
   role: GroupRole;
+  /** Audit entries by other members newer than the user's last visit. */
+  hasNews: boolean;
 };
 
 export type GroupDto = {
@@ -75,6 +79,8 @@ export type GroupDto = {
   simplifyDebts: boolean;
   myRole: GroupRole;
   myUserId: string;
+  /** Viewer preference: informational "≈ лв." next to EUR amounts. */
+  showBgnEquivalent: boolean;
   members: GroupMemberDto[];
   aliases: AliasDto[];
   expenses: ExpenseDto[];

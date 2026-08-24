@@ -1,5 +1,7 @@
 # RFC 07 — Notifications & Engagement: In-App Feed, Digest-First Email, User-Initiated Reminders
 
+> **Status update (2026-08-24):** stage 1 subset implemented — group_reads watermark + dashboard new-activity dot (no bell, no email). Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
+
 > **Status:** Proposed · **Priority: P2 — engagement layer, after core correctness (RFC 01) and localization (RFC 02)**
 > **Audience:** a future LLM implementer with full repo access. Read [research.md](research.md),
 > [00-current-state-audit.md §7/§1.9/§9](../00-current-state-audit.md), and the freemium/cost context in

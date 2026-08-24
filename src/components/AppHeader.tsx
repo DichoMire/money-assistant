@@ -21,6 +21,14 @@ export async function AppHeader({ user }: { user: { name?: string | null; email?
           <span className="hidden text-sm text-gray-500 sm:inline">
             {user.name ?? user.email}
           </span>
+          <Link
+            href="/settings"
+            className="rounded-lg px-2 py-1.5 text-lg leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            aria-label={t("header.settings")}
+            title={t("header.settings")}
+          >
+            ⚙
+          </Link>
           <LanguageToggle />
           <form
             action={async () => {

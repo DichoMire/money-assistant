@@ -46,7 +46,7 @@ export function computePersonTotals(
   const unassigned = items.filter((it) => it.assignMode === "unassigned" && it.totalCents !== 0);
   if (unassigned.length > 0) {
     const cents = unassigned.reduce((sum, it) => sum + it.totalCents, 0);
-    const amount = formatCents(cents, currency);
+    const amount = formatCents(cents, currency, t.locale);
     return {
       ok: false,
       error:
@@ -88,8 +88,8 @@ export function computePersonTotals(
           ok: false,
           error: t("convert.itemAmountsSum", {
             name: item.name,
-            sum: formatCents(sum, currency),
-            total: formatCents(item.totalCents, currency),
+            sum: formatCents(sum, currency, t.locale),
+            total: formatCents(item.totalCents, currency, t.locale),
           }),
         };
       }

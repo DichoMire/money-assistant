@@ -54,8 +54,8 @@ export function computeShares(
         return {
           ok: false,
           error: t("splitError.amountsSum", {
-            sum: formatCents(sum, currency),
-            total: formatCents(totalCents, currency),
+            sum: formatCents(sum, currency, t.locale),
+            total: formatCents(totalCents, currency, t.locale),
           }),
         };
       }
@@ -100,7 +100,7 @@ export function computeShares(
       if (base < 0) {
         return {
           ok: false,
-          error: t("splitError.adjustmentsSum", { sum: formatCents(adjustmentSum, currency) }),
+          error: t("splitError.adjustmentsSum", { sum: formatCents(adjustmentSum, currency, t.locale) }),
         };
       }
       const baseShares = allocateByWeights(base, entries.map(() => 1));
@@ -130,8 +130,8 @@ export function validatePayers(
   const sum = payers.reduce((a, p) => a + p.paidCents, 0);
   if (sum !== totalCents) {
     return t("splitError.paymentsSum", {
-      sum: formatCents(sum, currency),
-      total: formatCents(totalCents, currency),
+      sum: formatCents(sum, currency, t.locale),
+      total: formatCents(totalCents, currency, t.locale),
     });
   }
   return null;

@@ -35,6 +35,7 @@ export function ScanAssignModal({
   onClose: () => void;
 }) {
   const t = useT();
+  const money = (cents: number, currency: string) => formatCents(cents, currency, t.locale);
   const [mode, setMode] = useState<"equal" | "exact">(initialMode);
   const [selected, setSelected] = useState<Record<string, boolean>>(() => {
     const sel: Record<string, boolean> = {};
@@ -144,7 +145,7 @@ export function ScanAssignModal({
                   </span>
                   {mode === "equal" && isSelected && equalShares && (
                     <span className="text-sm font-semibold text-gray-500">
-                      {formatCents(equalByAlias.get(a.id)!, currency)}
+                      {money(equalByAlias.get(a.id)!, currency)}
                     </span>
                   )}
                 </button>
@@ -170,9 +171,9 @@ export function ScanAssignModal({
           ) : mode === "exact" && itemTotalCents !== null ? (
             <p className={`text-sm font-semibold ${exactOk ? "text-gray-500" : "text-red-600"}`}>
               {t("split.enteredLeft", {
-                entered: formatCents(exactEntered, currency),
-                total: formatCents(itemTotalCents, currency),
-                left: formatCents(itemTotalCents - exactEntered, currency),
+                entered: money(exactEntered, currency),
+                total: money(itemTotalCents, currency),
+                left: money(itemTotalCents - exactEntered, currency),
               })}
             </p>
           ) : mode === "exact" ? (

@@ -87,6 +87,7 @@ const CHIP_LIMIT = 5;
 export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDetailDto }) {
   const router = useRouter();
   const t = useT();
+  const money = (cents: number, currency: string) => formatCents(cents, currency, t.locale);
   const aliases = group.aliases;
   const allAliasIds = aliases.map((a) => a.id);
   const aliasNames = new Map(aliases.map((a) => [a.id, a.name]));
@@ -400,15 +401,15 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
 
         {mismatch && (
           <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-            {t("scanReview.mismatch1")} <strong>{formatCents(computedCents, currency)}</strong>
-            {t("scanReview.mismatch2")} <strong>{formatCents(totalCents!, currency)}</strong>
+            {t("scanReview.mismatch1")} <strong>{money(computedCents, currency)}</strong>
+            {t("scanReview.mismatch2")} <strong>{money(totalCents!, currency)}</strong>
             {t("scanReview.mismatch3")}{" "}
             <button
               type="button"
               className="cursor-pointer font-semibold underline"
               onClick={() => setTotalStr(centsToStr(computedCents))}
             >
-              {t("scanReview.setTotalTo", { amount: formatCents(computedCents, currency) })}
+              {t("scanReview.setTotalTo", { amount: money(computedCents, currency) })}
             </button>
           </div>
         )}
@@ -478,7 +479,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                     )}
                     {it.unitPriceCents !== null && it.quantity !== 1 && (
                       <p className="mt-0.5 text-[11px] text-gray-400">
-                        {it.quantity} × {formatCents(it.unitPriceCents, currency)}
+                        {it.quantity} × {money(it.unitPriceCents, currency)}
                       </p>
                     )}
                   </div>
@@ -608,7 +609,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
               {t("scanReview.addItem")}
             </button>
             <p className="text-sm font-semibold text-gray-500">
-              {t("scanReview.itemsSum", { amount: formatCents(itemsSum, currency) })}
+              {t("scanReview.itemsSum", { amount: money(itemsSum, currency) })}
             </p>
           </div>
         </div>
@@ -629,19 +630,19 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                         <span className="min-w-0 flex-1 truncate text-sm text-gray-700">{a.name}</span>
                         {poolTotal !== 0 && (
                           <span className="shrink-0 text-xs text-gray-400">
-                            {formatCents(p.itemCents, currency)} {p.poolCents >= 0 ? "+" : "−"}{" "}
-                            {formatCents(Math.abs(p.poolCents), currency)}
+                            {money(p.itemCents, currency)} {p.poolCents >= 0 ? "+" : "−"}{" "}
+                            {money(Math.abs(p.poolCents), currency)}
                           </span>
                         )}
                         <span className="shrink-0 text-sm font-semibold text-gray-800">
-                          {formatCents(p.totalCents, currency)}
+                          {money(p.totalCents, currency)}
                         </span>
                       </li>
                     );
                   })}
               </ul>
               <p className="border-t border-gray-100 pt-2 text-right text-sm font-bold text-gray-800">
-                {t("scanReview.total", { amount: formatCents(summary.grandTotalCents, currency) })}
+                {t("scanReview.total", { amount: money(summary.grandTotalCents, currency) })}
               </p>
             </>
           ) : (
@@ -718,7 +719,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
         <ConfirmModal
           message={t("scanReview.removeItemConfirm", {
             name: removeItem.name.trim() || t("scanReview.itemFallback"),
-            price: removeItemCents !== null ? ` (${formatCents(removeItemCents, currency)})` : "",
+            price: removeItemCents !== null ? ` (${money(removeItemCents, currency)})` : "",
           })}
           confirmLabel={t("common.remove")}
           onConfirm={() => setItems((list) => list.filter((x) => x.key !== removeItem.key))}

@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { getDb, type Db } from "@/db";
 import {
+  activityLog,
   aliases,
   expensePayers,
   expenseShares,
@@ -8,13 +9,21 @@ import {
   fxRates,
   groupInvites,
   groupMembers,
+  groupReads,
   groups,
   receiptScans,
   users,
 } from "@/db/schema";
 import { inviteIsUsable } from "./invites";
 import { allocateByWeights } from "./money";
-import { convertCents, findRateRow, ratesAreStale, todayString, type FxRow } from "./rates";
+import {
+  convertCents,
+  findRateRow,
+  isFixedLegPair,
+  ratesAreStale,
+  todayString,
+  type FxRow,
+} from "./rates";
 import { netBalances, pairwiseDebts, simplifiedDebts, type BalanceTransaction } from "./simplify";
 import type { SplitMethod } from "./split";
 import type {
@@ -83,16 +92,54 @@ export async function loadGroupSummaries(userId: string): Promise<GroupSummary[]
   const expenseMap = new Map(expenseCounts.map((r) => [r.groupId, r.count]));
   const memberMap = new Map(memberCounts.map((r) => [r.groupId, r.count]));
 
-  return rows.map(({ group, role }) => ({
-    id: group.id,
-    name: group.name,
-    currency: group.currency,
-    simplifyDebts: group.simplifyDebts,
-    aliasCount: aliasMap.get(group.id) ?? 0,
-    expenseCount: expenseMap.get(group.id) ?? 0,
-    memberCount: (memberMap.get(group.id) ?? 0) + 1, // + owner
-    role,
-  }));
+  // "New activity" dot: the newest audit entry by SOMEONE ELSE vs the user's
+  // per-group last-seen watermark (set when they open the group page).
+  const [latestOthers, readRows] = await Promise.all([
+    db
+      .select({ groupId: activityLog.groupId, latest: sql<string>`max(${activityLog.createdAt})` })
+      .from(activityLog)
+      .where(
+        and(
+          inArray(activityLog.groupId, ids),
+          sql`${activityLog.actorUserId} is distinct from ${userId}`
+        )
+      )
+      .groupBy(activityLog.groupId),
+    db
+      .select()
+      .from(groupReads)
+      .where(and(inArray(groupReads.groupId, ids), eq(groupReads.userId, userId))),
+  ]);
+  const latestMap = new Map(latestOthers.map((r) => [r.groupId, new Date(r.latest).getTime()]));
+  const seenMap = new Map(readRows.map((r) => [r.groupId, r.lastSeenAt.getTime()]));
+
+  return rows.map(({ group, role }) => {
+    const latest = latestMap.get(group.id);
+    const seen = seenMap.get(group.id);
+    return {
+      id: group.id,
+      name: group.name,
+      currency: group.currency,
+      simplifyDebts: group.simplifyDebts,
+      aliasCount: aliasMap.get(group.id) ?? 0,
+      expenseCount: expenseMap.get(group.id) ?? 0,
+      memberCount: (memberMap.get(group.id) ?? 0) + 1, // + owner
+      role,
+      hasNews: latest !== undefined && (seen === undefined || latest > seen),
+    };
+  });
+}
+
+/** Record that the user has just viewed the group (clears the "new" dot). */
+export async function markGroupSeen(groupId: string, userId: string): Promise<void> {
+  const db = await getDb();
+  await db
+    .insert(groupReads)
+    .values({ groupId, userId, lastSeenAt: new Date() })
+    .onConflictDoUpdate({
+      target: [groupReads.groupId, groupReads.userId],
+      set: { lastSeenAt: new Date() },
+    });
 }
 
 export async function loadGroupData(groupId: string, userId: string): Promise<GroupDto | null> {
@@ -135,7 +182,8 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
 
   const expenseDtos: ExpenseDto[] = expenseRows.map((e) => {
     const needsConversion = e.currency !== group.currency;
-    const rateRow = needsConversion ? findRateRow(fxRows, e.date) : null;
+    const usesEcbRate = needsConversion && !isFixedLegPair(e.currency, group.currency);
+    const rateRow = usesEcbRate ? findRateRow(fxRows, e.date) : null;
     const convertedCents = needsConversion
       ? convertCents(e.amountCents, e.currency, group.currency, rateRow)
       : e.amountCents;
@@ -154,7 +202,8 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
         .filter((s) => s.expenseId === e.id)
         .map((s) => ({ aliasId: s.aliasId, owedCents: s.owedCents, splitValue: s.splitValue })),
       convertedCents,
-      rateDate: needsConversion ? (rateRow?.date ?? null) : null,
+      // Fixed-leg conversions (BGN <-> EUR) use no ECB rate, so no rate date.
+      rateDate: usesEcbRate ? (rateRow?.date ?? null) : null,
       scanId: scanByExpense.get(e.id) ?? null,
     };
   });
@@ -176,7 +225,14 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
 
   const net = netBalances(transactions);
   const latestDate = fxRows.at(-1)?.date ?? null;
-  const needsConversion = expenseDtos.some((e) => e.currency !== group.currency);
+  // Only floating pairs need ECB rates; a EUR group full of BGN history (the
+  // common post-changeover case) must not trigger the stale-rates warning.
+  const needsConversion = expenseDtos.some(
+    (e) => e.currency !== group.currency && !isFixedLegPair(e.currency, group.currency)
+  );
+  // Expenses that could not be converted are EXCLUDED from the balance math
+  // above — surface that loudly rather than showing silently-wrong balances.
+  const excludedCount = expenseDtos.filter((e) => e.convertedCents === null).length;
 
   const memberUsers = [
     ...(ownerRows[0] ? [ownerRows[0]] : []),
@@ -197,6 +253,7 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
     simplifyDebts: group.simplifyDebts,
     myRole: membership.role,
     myUserId: userId,
+    showBgnEquivalent: memberUsers.find((u) => u.id === userId)?.showBgnEquivalent ?? false,
     members,
     aliases: aliasRows.map((a) => ({ id: a.id, name: a.name, userId: a.userId })),
     expenses: expenseDtos,
@@ -205,9 +262,10 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
     simplifiedDebts: simplifiedDebts(transactions),
     rates: {
       latestDate,
-      stale: ratesAreStale(latestDate, todayString()),
+      stale: needsConversion && ratesAreStale(latestDate, todayString()),
       needsConversion,
-      missingRate: expenseDtos.some((e) => e.convertedCents === null),
+      missingRate: excludedCount > 0,
+      excludedCount,
     },
   };
 }

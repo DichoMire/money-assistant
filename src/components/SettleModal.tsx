@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { saveSettlement } from "@/app/actions";
 import { CURRENCIES } from "@/lib/currencies";
+import { localTodayString } from "@/lib/format";
 import { formatCents, parseAmount } from "@/lib/money";
 import type { Debt } from "@/lib/simplify";
 import type { ExpenseDto, GroupDto } from "@/lib/types";
@@ -22,6 +23,7 @@ export function SettleModal({
   onClose: () => void;
 }) {
   const t = useT();
+  const money = (cents: number, currency: string) => formatCents(cents, currency, t.locale);
   const aliases = group.aliases;
   const [fromId, setFromId] = useState(
     settlement?.payers[0]?.aliasId ?? prefill?.fromAliasId ?? aliases[0]?.id ?? ""
@@ -37,7 +39,7 @@ export function SettleModal({
         : ""
   );
   const [currency, setCurrency] = useState(settlement?.currency ?? group.currency);
-  const [date, setDate] = useState(settlement?.date ?? new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(settlement?.date ?? localTodayString());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -87,7 +89,7 @@ export function SettleModal({
         <p className="text-center text-sm text-gray-600">
           <span className="font-semibold">{fromName}</span> {t("settle.paidWord")}{" "}
           <span className="font-semibold">{toName}</span>
-          {valid ? ` ${formatCents(amountCents!, currency)}` : ""}
+          {valid ? ` ${money(amountCents!, currency)}` : ""}
         </p>
 
         <div className="flex gap-2">

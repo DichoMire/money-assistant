@@ -1,5 +1,7 @@
 # RFC 11 — Reliability, Operations & Scale: Transactions, Rate Limits, Observability, CI, Hardening
 
+> **Status update (2026-08-24):** workstream (a) implemented — withTransaction over the Neon WebSocket driver (PGlite parity) wrapping saveExpense, saveSettlement, deleteExpense, deleteGroup, attachAlias/merge; receipt-action paths and all other workstreams outstanding. Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
+
 > **Status:** Proposed · **Priority: staged — P1 (launch blockers before charging money):
 > transactional integrity (a), rate limiting (b), error tracking (c1);
 > P2: CI (d), headers/cron hardening (e), cron ping + analytics (c2/c3), image-store

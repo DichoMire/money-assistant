@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { AppHeader } from "@/components/AppHeader";
 import { GroupView } from "@/components/GroupView";
-import { loadGroupData } from "@/lib/group-data";
+import { loadGroupData, markGroupSeen } from "@/lib/group-data";
 
 export default async function GroupPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -10,6 +10,8 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
   if (!session?.user?.id) redirect("/login");
   const data = await loadGroupData(id, session.user.id);
   if (!data) notFound();
+  // Viewing the group clears its "new activity" dot on the dashboard.
+  await markGroupSeen(id, session.user.id).catch(() => {});
 
   return (
     <div className="min-h-screen">

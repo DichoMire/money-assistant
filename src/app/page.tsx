@@ -36,7 +36,17 @@ export default async function DashboardPage() {
                 className="card block px-5 py-4 transition-shadow hover:shadow-md"
               >
                 <div className="flex items-start justify-between gap-2">
-                  <span className="text-lg font-bold text-gray-800">{g.name}</span>
+                  <span className="text-lg font-bold text-gray-800">
+                    {g.name}
+                    {g.hasNews && (
+                      <span
+                        className="ml-2 inline-block h-2 w-2 rounded-full align-middle"
+                        style={{ background: "var(--brand)" }}
+                        title={t("dashboard.newActivity")}
+                        aria-label={t("dashboard.newActivity")}
+                      />
+                    )}
+                  </span>
                   <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">
                     {g.currency}
                   </span>

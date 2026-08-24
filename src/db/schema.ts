@@ -35,6 +35,8 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   name: text("name"),
   image: text("image"),
+  // Show an informational "≈ лв." next to EUR amounts (fixed 1.95583 rate).
+  showBgnEquivalent: boolean("show_bgn_equivalent").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -44,7 +46,7 @@ export const groups = pgTable("groups", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  currency: text("currency").notNull().default("USD"),
+  currency: text("currency").notNull().default("EUR"),
   simplifyDebts: boolean("simplify_debts").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -237,6 +239,23 @@ export const receiptItemShares = pgTable(
     exactCents: integer("exact_cents"),
   },
   (t) => [primaryKey({ columns: [t.itemId, t.aliasId] })]
+);
+
+// Per-user "last seen" watermark for a group, updated when the user opens the
+// group page. The dashboard shows a "new activity" dot when the group's audit
+// trail has entries by OTHER members newer than this.
+export const groupReads = pgTable(
+  "group_reads",
+  {
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.userId] })]
 );
 
 // One row per day of ECB reference rates (base EUR), fetched by the Vercel

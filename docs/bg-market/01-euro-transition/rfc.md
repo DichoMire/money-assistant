@@ -1,5 +1,7 @@
 # RFC 01 — Euro Changeover Correctness: Fixed BGN→EUR Conversion & Missing-Rate Safety
 
+> **Status update (2026-08-24):** stages 1–2 implemented; stage 5 implemented as an account setting; stage 6 partially (Sofia/local dates — rate-gap repair outstanding); stages 3–4 outstanding. Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
+
 > **Status:** Proposed · **Priority: P0 — live correctness bug for the target market**
 > **Audience:** a future LLM implementer with full repo access. Read
 > [research.md](research.md) and [00-current-state-audit.md §5](../00-current-state-audit.md)

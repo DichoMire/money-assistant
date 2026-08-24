@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { updateGroup } from "@/app/actions";
+import { addAlias, updateGroup } from "@/app/actions";
 import { countWord } from "@/lib/i18n";
 import type { Debt } from "@/lib/simplify";
 import type { ExpenseDto, GroupDto } from "@/lib/types";
@@ -39,6 +39,21 @@ export function GroupView({ data }: { data: GroupDto }) {
     if (!isOwner) return;
     setSimplify(value);
     void updateGroup(data.id, { simplifyDebts: value });
+  };
+
+  // Inline first-step "add people" form (shown while the group has no
+  // participants) — no modal detour on the way to the first expense.
+  const [quickName, setQuickName] = useState("");
+  const [quickBusy, setQuickBusy] = useState(false);
+  const [quickError, setQuickError] = useState<string | null>(null);
+  const quickAdd = async () => {
+    if (!quickName.trim()) return;
+    setQuickBusy(true);
+    setQuickError(null);
+    const result = await addAlias(data.id, quickName);
+    setQuickBusy(false);
+    if (result.ok) setQuickName("");
+    else setQuickError(result.error);
   };
 
   const close = () => setModal(null);
@@ -97,16 +112,45 @@ export function GroupView({ data }: { data: GroupDto }) {
       </div>
 
       {data.aliases.length === 0 ? (
-        <div className="card px-6 py-12 text-center text-gray-500">
+        <div className="card mx-auto max-w-md px-6 py-10 text-center text-gray-500">
           <p className="text-lg font-semibold text-gray-700">{t("group.addPeopleFirst")}</p>
           <p className="mt-1 text-sm">{t("group.addPeopleHint")}</p>
-          <button
-            type="button"
-            className="btn btn-primary mt-4"
-            onClick={() => setModal({ type: "members" })}
-          >
-            {t("group.addPeople")}
-          </button>
+          {isOwner ? (
+            <>
+              <form
+                className="mt-5 flex gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void quickAdd();
+                }}
+              >
+                <input
+                  className="input"
+                  placeholder={t("group.quickAddPlaceholder")}
+                  value={quickName}
+                  onChange={(e) => setQuickName(e.target.value)}
+                  autoFocus
+                />
+                <button
+                  type="submit"
+                  className="btn btn-primary shrink-0"
+                  disabled={quickBusy || !quickName.trim()}
+                >
+                  {t("members.add")}
+                </button>
+              </form>
+              {quickError && <p className="mt-2 text-sm text-red-600">{quickError}</p>}
+              <p className="mt-3 text-xs text-gray-400">{t("group.quickAddHint")}</p>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-primary mt-4"
+              onClick={() => setModal({ type: "members" })}
+            >
+              {t("group.addPeople")}
+            </button>
+          )}
         </div>
       ) : (
         // grid-cols-1 keeps the stacked track at container width — an implicit

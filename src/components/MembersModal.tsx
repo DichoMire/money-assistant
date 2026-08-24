@@ -84,6 +84,20 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
     }
   };
 
+  // Web Share API: on phones the OS share sheet reaches Viber/Messenger
+  // directly — the URL travels inside the text so messenger previews render.
+  const [canShare, setCanShare] = useState(false);
+  useEffect(() => {
+    setCanShare(typeof navigator !== "undefined" && typeof navigator.share === "function");
+  }, []);
+  const shareLink = async (url: string) => {
+    try {
+      await navigator.share({ text: t("members.shareText", { name: group.name, url }) });
+    } catch {
+      // user closed the share sheet — not an error
+    }
+  };
+
   const virtualAliases = group.aliases.filter((a) => a.userId === null);
 
   return (
@@ -145,6 +159,15 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                     <button type="button" className="btn btn-primary shrink-0 !px-3 !py-1.5 !text-xs" onClick={() => void copyLink(link.url)}>
                       {copied ? t("members.copied") : t("members.copy")}
                     </button>
+                    {canShare && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary shrink-0 !px-3 !py-1.5 !text-xs"
+                        onClick={() => void shareLink(link.url)}
+                      >
+                        {t("members.share")}
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="btn btn-danger shrink-0 !px-3 !py-1.5 !text-xs"

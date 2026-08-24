@@ -6,6 +6,7 @@ import { deleteExpense } from "@/app/actions";
 import { formatDate } from "@/lib/format";
 import { countWord, type TKey } from "@/lib/i18n";
 import { formatCents } from "@/lib/money";
+import { eurToBgnCents } from "@/lib/rates";
 import type { ExpenseDto, GroupDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
 import { useConfirm } from "./ConfirmModal";
@@ -25,6 +26,7 @@ export function ExpenseDetailModal({
 }) {
   const t = useT();
   const locale = useLocale();
+  const money = (cents: number, currency: string) => formatCents(cents, currency, locale);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const names = new Map(group.aliases.map((a) => [a.id, a.name]));
@@ -40,7 +42,7 @@ export function ExpenseDetailModal({
       case "shares":
         return `${splitValue} ${countWord(t, splitValue, "count.share", "count.shares")}`;
       case "adjustment":
-        return `${splitValue >= 0 ? "+" : "−"}${formatCents(Math.abs(splitValue), expense.currency)} ${t("detail.adjSuffix")}`;
+        return `${splitValue >= 0 ? "+" : "−"}${money(Math.abs(splitValue), expense.currency)} ${t("detail.adjSuffix")}`;
       default:
         return null;
     }
@@ -48,7 +50,7 @@ export function ExpenseDetailModal({
 
   const { ask, confirmElement } = useConfirm();
   const remove = () => {
-    const amount = formatCents(expense.amountCents, expense.currency);
+    const amount = money(expense.amountCents, expense.currency);
     const message = isSettlement
       ? t("expenses.deletePaymentConfirm", {
           from: name(expense.payers[0]?.aliasId ?? ""),
@@ -115,12 +117,17 @@ export function ExpenseDetailModal({
           </div>
           <div className="shrink-0 text-right">
             <p className="text-xl font-bold text-gray-800">
-              {formatCents(expense.amountCents, expense.currency)}
+              {money(expense.amountCents, expense.currency)}
             </p>
+            {group.showBgnEquivalent && expense.currency === "EUR" && (
+              <p className="text-xs text-gray-400">
+                ≈ {money(eurToBgnCents(expense.amountCents), "BGN")}
+              </p>
+            )}
             {foreign &&
               (expense.convertedCents !== null ? (
                 <p className="text-xs text-gray-400">
-                  ≈ {formatCents(expense.convertedCents, group.currency)}
+                  ≈ {money(expense.convertedCents, group.currency)}
                   {expense.rateDate && (
                     <> · {t("detail.rateFrom", { date: formatDate(expense.rateDate, locale) })}</>
                   )}
@@ -136,7 +143,7 @@ export function ExpenseDetailModal({
             <p className="label">{t("detail.paidBy")}</p>
             <ul>
               {expense.payers.map((p) =>
-                personRow(p.aliasId, formatCents(p.paidCents, expense.currency))
+                personRow(p.aliasId, money(p.paidCents, expense.currency))
               )}
             </ul>
           </section>
@@ -146,7 +153,7 @@ export function ExpenseDetailModal({
               {expense.shares.map((s) =>
                 personRow(
                   s.aliasId,
-                  formatCents(s.owedCents, expense.currency),
+                  money(s.owedCents, expense.currency),
                   isSettlement ? null : splitHint(s.splitValue)
                 )
               )}

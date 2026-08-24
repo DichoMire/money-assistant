@@ -46,7 +46,9 @@ async function main() {
   assert.ok(data);
   assert.equal(data.expenses.length, 2);
 
-  const expectedConv = Math.round((1100 * 1.1) / 1.95583); // 619
+  // BGN chains through its fixed euro leg with half-up rounding at the legal
+  // conversion boundary: BGN -> EUR (562), then EUR -> USD via the row (618).
+  const expectedConv = Math.round(Math.round(1100 / 1.95583) * 1.1); // 618
   const coffee = data.expenses.find((e) => e.currency === "BGN")!;
   assert.equal(coffee.convertedCents, expectedConv);
   assert.equal(coffee.rateDate, "2026-08-20");
@@ -65,7 +67,7 @@ async function main() {
     ].sort()
   );
 
-  // Nets: Anna +2000, Ben (619 - 1000) = -381, Cara -(1000 + 619) = -1619.
+  // Nets: Anna +2000, Ben (618 - 1000) = -382, Cara -(1000 + 618) = -1618.
   const simp = data.simplifiedDebts.map((d) => [d.fromAliasId, d.toAliasId, d.amountCents]);
   assert.deepEqual(
     simp.sort(),

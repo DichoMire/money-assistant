@@ -454,6 +454,35 @@ export const en = {
     "The receipt couldn't be read automatically. Try again, or use a sharper, tighter photo of just the receipt.",
   "parse.notAReceipt": "This image doesn't look like a purchase receipt.",
   "parse.busyHint": " (a backup model was busy, so trying again in a minute may also help)",
+
+  // ---- account settings ----
+  "header.settings": "Settings",
+  "account.title": "Account settings",
+  "account.language": "Language",
+  "account.showBgn": "Show leva equivalent next to euro amounts",
+  "account.showBgnHint": "Informational only, at the fixed rate 1 € = 1.95583 лв.",
+  "account.back": "← Back to groups",
+
+  // ---- unconvertible-expense warning ----
+  "balances.excludedOne": "1 expense could not be converted to {currency} and is NOT included in these balances.",
+  "balances.excludedMany": "{count} expenses could not be converted to {currency} and are NOT included in these balances.",
+  "balances.excludedHint": "Update the exchange rates, or change those expenses' currency.",
+  "errors.noRateForCurrency": "No exchange rate is available to convert {currency} to {groupCurrency} yet — update the rates first or pick another currency.",
+
+  // ---- invite sharing ----
+  "members.share": "Share",
+  "members.shareText": "Join “{name}” on Money Assistant: {url}",
+
+  // ---- group templates & quick start ----
+  "newGroup.templatesLabel": "Quick start",
+  "newGroup.templateTrip": "Trip",
+  "newGroup.templateFlatmates": "Flatmates",
+  "newGroup.templateCouple": "Couple",
+  "group.quickAddPlaceholder": "Add a person by name",
+  "group.quickAddHint": "People with accounts can join later via an invite link — for now just add everyone by name.",
+
+  // ---- dashboard ----
+  "dashboard.newActivity": "New activity",
 } as const;
 
 export type TKey = keyof typeof en;
@@ -899,16 +928,47 @@ const bg: Record<TKey, string> = {
     "Бележката не можа да бъде разчетена автоматично. Опитайте отново или използвайте по-ясна, по-близка снимка само на бележката.",
   "parse.notAReceipt": "Това изображение не изглежда като касова бележка.",
   "parse.busyHint": " (резервен модел беше зает, така че нов опит след минута също може да помогне)",
+
+  // ---- account settings ----
+  "header.settings": "Настройки",
+  "account.title": "Настройки на профила",
+  "account.language": "Език",
+  "account.showBgn": "Показвай равностойност в лева до сумите в евро",
+  "account.showBgnHint": "Само за информация, по фиксирания курс 1 € = 1,95583 лв.",
+  "account.back": "← Обратно към групите",
+
+  // ---- unconvertible-expense warning ----
+  "balances.excludedOne": "1 разход не можа да бъде превалутиран към {currency} и НЕ е включен в тези салда.",
+  "balances.excludedMany": "{count} разхода не можаха да бъдат превалутирани към {currency} и НЕ са включени в тези салда.",
+  "balances.excludedHint": "Обнови валутните курсове или промени валутата на тези разходи.",
+  "errors.noRateForCurrency": "Все още няма валутен курс за превалутиране от {currency} към {groupCurrency} — първо обнови курсовете или избери друга валута.",
+
+  // ---- invite sharing ----
+  "members.share": "Сподели",
+  "members.shareText": "Присъедини се към „{name}“ в Money Assistant: {url}",
+
+  // ---- group templates & quick start ----
+  "newGroup.templatesLabel": "Бърз старт",
+  "newGroup.templateTrip": "Пътуване",
+  "newGroup.templateFlatmates": "Съквартиранти",
+  "newGroup.templateCouple": "Двойка",
+  "group.quickAddPlaceholder": "Добави човек по име",
+  "group.quickAddHint": "Хората с профили могат да се присъединят по-късно с линк за покана — засега просто добави всички по име.",
+
+  // ---- dashboard ----
+  "dashboard.newActivity": "Нова активност",
 };
 
 const DICTIONARIES: Record<Locale, Record<TKey, string>> = { en, bg };
 
 export type TParams = Record<string, string | number>;
-export type TFunc = (key: TKey, params?: TParams) => string;
+/** Translator bound to a locale; `t.locale` lets shared code (split/receipt
+ *  error messages) format amounts in the same locale as the words. */
+export type TFunc = ((key: TKey, params?: TParams) => string) & { locale: Locale };
 
 export function makeT(locale: Locale): TFunc {
   const dict = DICTIONARIES[locale] ?? en;
-  return (key, params) => {
+  const t = ((key, params) => {
     let text = dict[key] ?? en[key] ?? key;
     if (params) {
       for (const [name, value] of Object.entries(params)) {
@@ -916,7 +976,9 @@ export function makeT(locale: Locale): TFunc {
       }
     }
     return text;
-  };
+  }) as TFunc;
+  t.locale = locale;
+  return t;
 }
 
 /** English `t` — the fallback for shared lib code when no locale is threaded through. */

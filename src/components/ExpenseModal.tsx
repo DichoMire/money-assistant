@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { saveExpense } from "@/app/actions";
 import { CURRENCIES } from "@/lib/currencies";
+import { localTodayString } from "@/lib/format";
 import { countWord, type TKey } from "@/lib/i18n";
 import { formatCents, parseAmount, parseNumber } from "@/lib/money";
 import {
@@ -47,6 +48,7 @@ export function ExpenseModal({
   onClose: () => void;
 }) {
   const t = useT();
+  const money = (cents: number, currency: string) => formatCents(cents, currency, t.locale);
   const methodLabel = (m: SplitMethod) => t(`splitMethod.${m}` as TKey);
   const aliases = group.aliases;
 
@@ -54,7 +56,7 @@ export function ExpenseModal({
   const [description, setDescription] = useState(expense?.description ?? "");
   const [amountStr, setAmountStr] = useState(expense ? centsToStr(expense.amountCents) : "");
   const [currency, setCurrency] = useState(expense?.currency ?? group.currency);
-  const [date, setDate] = useState(expense?.date ?? new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(expense?.date ?? localTodayString());
 
   const [payerMode, setPayerMode] = useState<"single" | "multi">(
     expense && expense.payers.length > 1 ? "multi" : "single"
@@ -320,9 +322,9 @@ export function ExpenseModal({
           className={`px-2 text-sm font-semibold ${multiPaidSum === totalCents ? "text-gray-500" : "text-red-600"}`}
         >
           {t("split.enteredLeft", {
-            entered: formatCents(multiPaidSum, currency),
-            total: formatCents(totalCents!, currency),
-            left: formatCents(totalCents! - multiPaidSum, currency),
+            entered: money(multiPaidSum, currency),
+            total: money(totalCents!, currency),
+            left: money(totalCents! - multiPaidSum, currency),
           })}
         </p>
       )}
@@ -346,7 +348,7 @@ export function ExpenseModal({
         return (
           <p className="text-sm font-semibold text-gray-500">
             {t("expenseModal.perPerson", {
-              amount: formatCents(Math.round(total / count), currency),
+              amount: money(Math.round(total / count), currency),
               count,
               word: countWord(t, count, "count.person", "count.people"),
             })}
@@ -359,9 +361,9 @@ export function ExpenseModal({
         return (
           <p className={`text-sm font-semibold ${ok ? "text-gray-500" : "text-red-600"}`}>
             {t("split.enteredLeft", {
-              entered: formatCents(entered, currency),
-              total: formatCents(total, currency),
-              left: formatCents(total - entered, currency),
+              entered: money(entered, currency),
+              total: money(total, currency),
+              left: money(total - entered, currency),
             })}
           </p>
         );
@@ -391,7 +393,7 @@ export function ExpenseModal({
         ) : (
           <p className="text-sm font-semibold text-gray-500">
             {t("expenseModal.equalOnTop", {
-              amount: formatCents(remaining, currency),
+              amount: money(remaining, currency),
               count: includedAliases.length,
             })}
           </p>
@@ -449,8 +451,8 @@ export function ExpenseModal({
                     }
                   >
                     {method === "equal"
-                      ? formatCents(owedByAlias.get(a.id)!, currency)
-                      : t("split.owesAmount", { amount: formatCents(owedByAlias.get(a.id)!, currency) })}
+                      ? money(owedByAlias.get(a.id)!, currency)
+                      : t("split.owesAmount", { amount: money(owedByAlias.get(a.id)!, currency) })}
                   </span>
                 )}
               </button>

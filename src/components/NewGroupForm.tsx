@@ -12,9 +12,15 @@ export function NewGroupForm() {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [currency, setCurrency] = useState("USD");
+  const [currency, setCurrency] = useState("EUR");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const templates = [
+    t("newGroup.templateTrip"),
+    t("newGroup.templateFlatmates"),
+    t("newGroup.templateCouple"),
+  ];
 
   const submit = async () => {
     setBusy(true);
@@ -44,6 +50,26 @@ export function NewGroupForm() {
               void submit();
             }}
           >
+            <div>
+              <p className="label">{t("newGroup.templatesLabel")}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {templates.map((label) => (
+                  <button
+                    key={label}
+                    type="button"
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                      name === label
+                        ? "border-transparent text-white"
+                        : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                    }`}
+                    style={name === label ? { background: "var(--brand)" } : undefined}
+                    onClick={() => setName(label)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div>
               <label className="label" htmlFor="group-name">
                 {t("newGroup.name")}

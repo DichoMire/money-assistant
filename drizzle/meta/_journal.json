@@ -36,6 +36,13 @@
       "when": 1787503011813,
       "tag": "0004_receipt-scans",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787600057474,
+      "tag": "0005_euro-personal",
+      "breakpoints": true
     }
   ]
 }

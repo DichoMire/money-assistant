@@ -68,6 +68,7 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
   const router = useRouter();
   const t = useT();
   const locale = useLocale();
+  const money = (cents: number, currency: string) => formatCents(cents, currency, locale);
   const { ask, confirmElement } = useConfirm();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -109,7 +110,7 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
     ask(
       t("scan.deleteConfirm", {
         name: scan.merchant ?? t("scan.receiptFallback"),
-        amount: formatCents(scan.totalCents, scan.currency),
+        amount: money(scan.totalCents, scan.currency),
       }),
       async () => {
         setDeletingId(scan.id);
@@ -237,7 +238,7 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
                     {scan.expenseId ? t("scan.converted") : t("scan.draft")}
                   </span>
                   <span className="shrink-0 text-sm font-semibold text-gray-800">
-                    {formatCents(scan.totalCents, scan.currency)}
+                    {money(scan.totalCents, scan.currency)}
                   </span>
                 </button>
                 <button

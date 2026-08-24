@@ -2,13 +2,14 @@
 
 import { and, desc, eq, gt } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { getDb, type Db } from "@/db";
+import { getDb, withTransaction, type Db } from "@/db";
 import {
   activityLog,
   aliases,
   expensePayers,
   expenseShares,
   expenses,
+  fxRates,
   groupInvites,
   groupMembers,
   groups,
@@ -25,11 +26,13 @@ import {
 } from "@/lib/action-helpers";
 import { isSupportedCurrency } from "@/lib/currencies";
 import { formatDate } from "@/lib/format";
+import type { TFunc } from "@/lib/i18n";
 import { getT } from "@/lib/i18n-server";
 import { getMembership, loadCircle } from "@/lib/group-data";
 import { mergeAliasReferences } from "@/lib/merge-alias";
 import { formatCents } from "@/lib/money";
 import { inviteExpiry, inviteIsUsable, joinUrl, newInviteToken } from "@/lib/invites";
+import { convertCents, isFixedLegPair } from "@/lib/rates";
 import { refreshRates } from "@/lib/rates-fetch";
 import {
   computeShares,
@@ -46,6 +49,27 @@ import type {
   InviteLinkDto,
   SettlementInput,
 } from "@/lib/types";
+
+/**
+ * Refuse to store a transaction whose currency can't currently convert to the
+ * group currency — fail loudly at entry instead of silently corrupting the
+ * balances at display time. Fixed euro legs (BGN/HRK <-> EUR) always convert
+ * and need no stored rates.
+ */
+async function currencyConversionError(
+  db: Db,
+  currency: string,
+  groupCurrency: string,
+  t: TFunc
+): Promise<string | null> {
+  if (currency === groupCurrency || isFixedLegPair(currency, groupCurrency)) return null;
+  const latest = await db.select().from(fxRates).orderBy(desc(fxRates.date)).limit(1);
+  const row = latest[0] ? { date: latest[0].date, rates: latest[0].rates } : null;
+  if (convertCents(100, currency, groupCurrency, row) === null) {
+    return t("errors.noRateForCurrency", { currency, groupCurrency });
+  }
+  return null;
+}
 
 function participantSummary(ids: string[], names: Map<string, string>): string {
   if (ids.length > 4) return `${ids.length} people`;
@@ -209,18 +233,21 @@ export async function deleteGroup(groupId: string): Promise<ActionResult> {
     const db = await getDb();
     await requireRole(db, groupId, user.id, "owner");
     // FK order: aliases are referenced by payers/shares with RESTRICT, so
-    // remove transactions first, then aliases, then the group.
-    const groupExpenses = await db
-      .select({ id: expenses.id })
-      .from(expenses)
-      .where(eq(expenses.groupId, groupId));
-    for (const e of groupExpenses) {
-      await db.delete(expensePayers).where(eq(expensePayers.expenseId, e.id));
-      await db.delete(expenseShares).where(eq(expenseShares.expenseId, e.id));
-    }
-    await db.delete(expenses).where(eq(expenses.groupId, groupId));
-    await db.delete(aliases).where(eq(aliases.groupId, groupId));
-    await db.delete(groups).where(eq(groups.id, groupId));
+    // remove transactions first, then aliases, then the group — atomically,
+    // so a mid-flight failure can't leave a half-deleted group.
+    await withTransaction(async (tx) => {
+      const groupExpenses = await tx
+        .select({ id: expenses.id })
+        .from(expenses)
+        .where(eq(expenses.groupId, groupId));
+      for (const e of groupExpenses) {
+        await tx.delete(expensePayers).where(eq(expensePayers.expenseId, e.id));
+        await tx.delete(expenseShares).where(eq(expenseShares.expenseId, e.id));
+      }
+      await tx.delete(expenses).where(eq(expenses.groupId, groupId));
+      await tx.delete(aliases).where(eq(aliases.groupId, groupId));
+      await tx.delete(groups).where(eq(groups.id, groupId));
+    });
     revalidatePath("/");
     return { ok: true };
   } catch (e) {
@@ -355,11 +382,14 @@ export async function attachAlias(aliasId: string, targetUserId: string): Promis
     }
     const groupAliases = await db.select().from(aliases).where(eq(aliases.groupId, alias.groupId));
     const existing = groupAliases.find((a) => a.userId === targetUserId);
-    if (existing) {
-      await mergeAliasReferences(db, existing.id, alias.id);
-      await db.delete(aliases).where(eq(aliases.id, existing.id));
-    }
-    await db.update(aliases).set({ userId: targetUserId }).where(eq(aliases.id, alias.id));
+    // Atomic: a partial merge would corrupt both identities' histories.
+    await withTransaction(async (tx) => {
+      if (existing) {
+        await mergeAliasReferences(tx, existing.id, alias.id);
+        await tx.delete(aliases).where(eq(aliases.id, existing.id));
+      }
+      await tx.update(aliases).set({ userId: targetUserId }).where(eq(aliases.id, alias.id));
+    });
     const targetRows = await db.select().from(users).where(eq(users.id, targetUserId));
     await logActivity(db, alias.groupId, user, "alias.attached", {
       aliasName: alias.name,
@@ -573,7 +603,7 @@ export async function saveExpense(input: ExpenseInput): Promise<ActionResult> {
     const t = await getT();
     const user = await requireUser();
     const db = await getDb();
-    await requireRole(db, input.groupId, user.id, "member");
+    const { group } = await requireRole(db, input.groupId, user.id, "member");
 
     const description = input.description.trim();
     if (!description) return { ok: false, error: t("errors.descriptionRequired") };
@@ -583,6 +613,8 @@ export async function saveExpense(input: ExpenseInput): Promise<ActionResult> {
     if (!isSupportedCurrency(input.currency)) return { ok: false, error: t("errors.unsupportedCurrency") };
     if (!DATE_RE.test(input.date)) return { ok: false, error: t("errors.invalidDate") };
     if (!SPLIT_METHODS.includes(input.splitMethod)) return { ok: false, error: t("errors.invalidSplitMethod") };
+    const currencyError = await currencyConversionError(db, input.currency, group.currency, t);
+    if (currencyError) return { ok: false, error: currencyError };
 
     const groupAliases = await db.select().from(aliases).where(eq(aliases.groupId, input.groupId));
     const aliasIds = new Set(groupAliases.map((a) => a.id));
@@ -603,91 +635,100 @@ export async function saveExpense(input: ExpenseInput): Promise<ActionResult> {
     const split = computeShares(input.splitMethod, input.amountCents, input.splits, input.currency, t);
     if (!split.ok) return { ok: false, error: split.error };
 
-    let expenseId = input.id;
-    let oldExpense: typeof expenses.$inferSelect | null = null;
-    let oldPayers: { aliasId: string; paidCents: number }[] = [];
-    let oldShares: { aliasId: string; owedCents: number }[] = [];
-    if (expenseId) {
-      const existing = await db
-        .select()
-        .from(expenses)
-        .where(and(eq(expenses.id, expenseId), eq(expenses.groupId, input.groupId)));
-      if (!existing[0]) return { ok: false, error: t("errors.expenseNotFound") };
-      oldExpense = existing[0];
-      [oldPayers, oldShares] = await Promise.all([
-        db.select().from(expensePayers).where(eq(expensePayers.expenseId, expenseId)),
-        db.select().from(expenseShares).where(eq(expenseShares.expenseId, expenseId)),
-      ]);
-      await db
-        .update(expenses)
-        .set({
-          description,
-          amountCents: input.amountCents,
-          currency: input.currency,
-          date: input.date,
-          splitMethod: input.splitMethod,
-          kind: "expense",
-        })
-        .where(eq(expenses.id, expenseId));
-      await db.delete(expensePayers).where(eq(expensePayers.expenseId, expenseId));
-      await db.delete(expenseShares).where(eq(expenseShares.expenseId, expenseId));
-    } else {
-      const rows = await db
-        .insert(expenses)
-        .values({
-          groupId: input.groupId,
-          kind: "expense",
-          description,
-          amountCents: input.amountCents,
-          currency: input.currency,
-          date: input.date,
-          splitMethod: input.splitMethod,
-        })
-        .returning({ id: expenses.id });
-      expenseId = rows[0].id;
-    }
+    // Everything that mutates runs in one transaction: a mid-flight failure
+    // must never leave an expense stripped of its payers/shares (the balance
+    // math would then silently skip it).
+    const txResult = await withTransaction<{ error: string } | { expenseId: string }>(
+      async (tx) => {
+        let expenseId = input.id;
+        let oldExpense: typeof expenses.$inferSelect | null = null;
+        let oldPayers: { aliasId: string; paidCents: number }[] = [];
+        let oldShares: { aliasId: string; owedCents: number }[] = [];
+        if (expenseId) {
+          const existing = await tx
+            .select()
+            .from(expenses)
+            .where(and(eq(expenses.id, expenseId), eq(expenses.groupId, input.groupId)));
+          if (!existing[0]) return { error: t("errors.expenseNotFound") };
+          oldExpense = existing[0];
+          [oldPayers, oldShares] = await Promise.all([
+            tx.select().from(expensePayers).where(eq(expensePayers.expenseId, expenseId)),
+            tx.select().from(expenseShares).where(eq(expenseShares.expenseId, expenseId)),
+          ]);
+          await tx
+            .update(expenses)
+            .set({
+              description,
+              amountCents: input.amountCents,
+              currency: input.currency,
+              date: input.date,
+              splitMethod: input.splitMethod,
+              kind: "expense",
+            })
+            .where(eq(expenses.id, expenseId));
+          await tx.delete(expensePayers).where(eq(expensePayers.expenseId, expenseId));
+          await tx.delete(expenseShares).where(eq(expenseShares.expenseId, expenseId));
+        } else {
+          const rows = await tx
+            .insert(expenses)
+            .values({
+              groupId: input.groupId,
+              kind: "expense",
+              description,
+              amountCents: input.amountCents,
+              currency: input.currency,
+              date: input.date,
+              splitMethod: input.splitMethod,
+            })
+            .returning({ id: expenses.id });
+          expenseId = rows[0].id;
+        }
 
-    await db.insert(expensePayers).values(
-      input.payers.map((p) => ({ expenseId: expenseId!, aliasId: p.aliasId, paidCents: p.paidCents }))
-    );
-    await db.insert(expenseShares).values(
-      split.shares.map((s) => ({
-        expenseId: expenseId!,
-        aliasId: s.aliasId,
-        owedCents: s.owedCents,
-        splitValue: s.splitValue,
-      }))
-    );
+        await tx.insert(expensePayers).values(
+          input.payers.map((p) => ({ expenseId: expenseId!, aliasId: p.aliasId, paidCents: p.paidCents }))
+        );
+        await tx.insert(expenseShares).values(
+          split.shares.map((s) => ({
+            expenseId: expenseId!,
+            aliasId: s.aliasId,
+            owedCents: s.owedCents,
+            splitValue: s.splitValue,
+          }))
+        );
 
-    if (oldExpense) {
-      const changes = buildExpenseChanges({
-        oldExpense,
-        oldPayers,
-        oldShares,
-        input,
-        description,
-        newShares: split.shares,
-        aliasNames: new Map(groupAliases.map((a) => [a.id, a.name])),
-      });
-      if (changes.length > 0) {
-        await logActivity(db, input.groupId, user, "expense.updated", {
-          description,
-          amountCents: input.amountCents,
-          currency: input.currency,
-          date: input.date,
-          changes,
-        });
+        if (oldExpense) {
+          const changes = buildExpenseChanges({
+            oldExpense,
+            oldPayers,
+            oldShares,
+            input,
+            description,
+            newShares: split.shares,
+            aliasNames: new Map(groupAliases.map((a) => [a.id, a.name])),
+          });
+          if (changes.length > 0) {
+            await logActivity(tx, input.groupId, user, "expense.updated", {
+              description,
+              amountCents: input.amountCents,
+              currency: input.currency,
+              date: input.date,
+              changes,
+            });
+          }
+        } else {
+          await logActivity(tx, input.groupId, user, "expense.added", {
+            description,
+            amountCents: input.amountCents,
+            currency: input.currency,
+            date: input.date,
+          });
+        }
+        return { expenseId: expenseId! };
       }
-    } else {
-      await logActivity(db, input.groupId, user, "expense.added", {
-        description,
-        amountCents: input.amountCents,
-        currency: input.currency,
-        date: input.date,
-      });
-    }
+    );
+    if ("error" in txResult) return { ok: false, error: txResult.error };
     revalidateGroup(input.groupId);
-    return { ok: true, id: expenseId };
+    return { ok: true, id: txResult.expenseId };
   } catch (e) {
     return fail(e);
   }
@@ -698,7 +739,7 @@ export async function saveSettlement(input: SettlementInput): Promise<ActionResu
     const t = await getT();
     const user = await requireUser();
     const db = await getDb();
-    await requireRole(db, input.groupId, user.id, "member");
+    const { group } = await requireRole(db, input.groupId, user.id, "member");
 
     if (input.fromAliasId === input.toAliasId) {
       return { ok: false, error: t("settle.differentPeople") };
@@ -708,6 +749,8 @@ export async function saveSettlement(input: SettlementInput): Promise<ActionResu
     }
     if (!isSupportedCurrency(input.currency)) return { ok: false, error: t("errors.unsupportedCurrency") };
     if (!DATE_RE.test(input.date)) return { ok: false, error: t("errors.invalidDate") };
+    const currencyError = await currencyConversionError(db, input.currency, group.currency, t);
+    if (currencyError) return { ok: false, error: currencyError };
 
     const groupAliases = await db.select().from(aliases).where(eq(aliases.groupId, input.groupId));
     const aliasIds = new Set(groupAliases.map((a) => a.id));
@@ -715,90 +758,96 @@ export async function saveSettlement(input: SettlementInput): Promise<ActionResu
       return { ok: false, error: t("errors.invalidParticipants") };
     }
 
-    let expenseId = input.id;
-    let oldSettlement: typeof expenses.$inferSelect | null = null;
-    let oldFromId: string | null = null;
-    let oldToId: string | null = null;
-    if (expenseId) {
-      const existing = await db
-        .select()
-        .from(expenses)
-        .where(and(eq(expenses.id, expenseId), eq(expenses.groupId, input.groupId)));
-      if (!existing[0]) return { ok: false, error: t("errors.paymentNotFound") };
-      oldSettlement = existing[0];
-      const [oldPayers, oldShares] = await Promise.all([
-        db.select().from(expensePayers).where(eq(expensePayers.expenseId, expenseId)),
-        db.select().from(expenseShares).where(eq(expenseShares.expenseId, expenseId)),
-      ]);
-      oldFromId = oldPayers[0]?.aliasId ?? null;
-      oldToId = oldShares[0]?.aliasId ?? null;
-      await db
-        .update(expenses)
-        .set({ amountCents: input.amountCents, currency: input.currency, date: input.date })
-        .where(eq(expenses.id, expenseId));
-      await db.delete(expensePayers).where(eq(expensePayers.expenseId, expenseId));
-      await db.delete(expenseShares).where(eq(expenseShares.expenseId, expenseId));
-    } else {
-      const rows = await db
-        .insert(expenses)
-        .values({
-          groupId: input.groupId,
-          kind: "settlement",
-          description: "Payment",
+    const txResult = await withTransaction<{ error: string } | { expenseId: string }>(
+      async (tx) => {
+        let expenseId = input.id;
+        let oldSettlement: typeof expenses.$inferSelect | null = null;
+        let oldFromId: string | null = null;
+        let oldToId: string | null = null;
+        if (expenseId) {
+          const existing = await tx
+            .select()
+            .from(expenses)
+            .where(and(eq(expenses.id, expenseId), eq(expenses.groupId, input.groupId)));
+          if (!existing[0]) return { error: t("errors.paymentNotFound") };
+          oldSettlement = existing[0];
+          const [oldPayers, oldShares] = await Promise.all([
+            tx.select().from(expensePayers).where(eq(expensePayers.expenseId, expenseId)),
+            tx.select().from(expenseShares).where(eq(expenseShares.expenseId, expenseId)),
+          ]);
+          oldFromId = oldPayers[0]?.aliasId ?? null;
+          oldToId = oldShares[0]?.aliasId ?? null;
+          await tx
+            .update(expenses)
+            .set({ amountCents: input.amountCents, currency: input.currency, date: input.date })
+            .where(eq(expenses.id, expenseId));
+          await tx.delete(expensePayers).where(eq(expensePayers.expenseId, expenseId));
+          await tx.delete(expenseShares).where(eq(expenseShares.expenseId, expenseId));
+        } else {
+          const rows = await tx
+            .insert(expenses)
+            .values({
+              groupId: input.groupId,
+              kind: "settlement",
+              description: "Payment",
+              amountCents: input.amountCents,
+              currency: input.currency,
+              date: input.date,
+              splitMethod: "exact",
+            })
+            .returning({ id: expenses.id });
+          expenseId = rows[0].id;
+        }
+
+        await tx.insert(expensePayers).values([
+          { expenseId: expenseId!, aliasId: input.fromAliasId, paidCents: input.amountCents },
+        ]);
+        await tx.insert(expenseShares).values([
+          {
+            expenseId: expenseId!,
+            aliasId: input.toAliasId,
+            owedCents: input.amountCents,
+            splitValue: input.amountCents,
+          },
+        ]);
+
+        const aliasNames = new Map(groupAliases.map((a) => [a.id, a.name]));
+        const name = (id: string | null) => (id ? (aliasNames.get(id) ?? "?") : "?");
+        const baseDetails = {
+          fromName: name(input.fromAliasId),
+          toName: name(input.toAliasId),
           amountCents: input.amountCents,
           currency: input.currency,
           date: input.date,
-          splitMethod: "exact",
-        })
-        .returning({ id: expenses.id });
-      expenseId = rows[0].id;
-    }
-
-    await db.insert(expensePayers).values([
-      { expenseId: expenseId!, aliasId: input.fromAliasId, paidCents: input.amountCents },
-    ]);
-    await db.insert(expenseShares).values([
-      {
-        expenseId: expenseId!,
-        aliasId: input.toAliasId,
-        owedCents: input.amountCents,
-        splitValue: input.amountCents,
-      },
-    ]);
-
-    const aliasNames = new Map(groupAliases.map((a) => [a.id, a.name]));
-    const name = (id: string | null) => (id ? (aliasNames.get(id) ?? "?") : "?");
-    const baseDetails = {
-      fromName: name(input.fromAliasId),
-      toName: name(input.toAliasId),
-      amountCents: input.amountCents,
-      currency: input.currency,
-      date: input.date,
-    };
-    if (oldSettlement) {
-      const changes: string[] = [];
-      if (oldFromId !== input.fromAliasId) {
-        changes.push(`payer ${name(oldFromId)} → ${name(input.fromAliasId)}`);
+        };
+        if (oldSettlement) {
+          const changes: string[] = [];
+          if (oldFromId !== input.fromAliasId) {
+            changes.push(`payer ${name(oldFromId)} → ${name(input.fromAliasId)}`);
+          }
+          if (oldToId !== input.toAliasId) {
+            changes.push(`recipient ${name(oldToId)} → ${name(input.toAliasId)}`);
+          }
+          if (oldSettlement.amountCents !== input.amountCents || oldSettlement.currency !== input.currency) {
+            changes.push(
+              `amount ${formatCents(oldSettlement.amountCents, oldSettlement.currency)} → ${formatCents(input.amountCents, input.currency)}`
+            );
+          }
+          if (oldSettlement.date !== input.date) {
+            changes.push(`date ${formatDate(oldSettlement.date)} → ${formatDate(input.date)}`);
+          }
+          if (changes.length > 0) {
+            await logActivity(tx, input.groupId, user, "payment.updated", { ...baseDetails, changes });
+          }
+        } else {
+          await logActivity(tx, input.groupId, user, "payment.added", baseDetails);
+        }
+        return { expenseId: expenseId! };
       }
-      if (oldToId !== input.toAliasId) {
-        changes.push(`recipient ${name(oldToId)} → ${name(input.toAliasId)}`);
-      }
-      if (oldSettlement.amountCents !== input.amountCents || oldSettlement.currency !== input.currency) {
-        changes.push(
-          `amount ${formatCents(oldSettlement.amountCents, oldSettlement.currency)} → ${formatCents(input.amountCents, input.currency)}`
-        );
-      }
-      if (oldSettlement.date !== input.date) {
-        changes.push(`date ${formatDate(oldSettlement.date)} → ${formatDate(input.date)}`);
-      }
-      if (changes.length > 0) {
-        await logActivity(db, input.groupId, user, "payment.updated", { ...baseDetails, changes });
-      }
-    } else {
-      await logActivity(db, input.groupId, user, "payment.added", baseDetails);
-    }
+    );
+    if ("error" in txResult) return { ok: false, error: txResult.error };
     revalidateGroup(input.groupId);
-    return { ok: true, id: expenseId };
+    return { ok: true, id: txResult.expenseId };
   } catch (e) {
     return fail(e);
   }
@@ -842,16 +891,18 @@ export async function deleteExpense(expenseId: string): Promise<ActionResult> {
       };
     }
 
-    await db.delete(expensePayers).where(eq(expensePayers.expenseId, expenseId));
-    await db.delete(expenseShares).where(eq(expenseShares.expenseId, expenseId));
-    await db.delete(expenses).where(eq(expenses.id, expenseId));
-    await logActivity(
-      db,
-      expense.groupId,
-      user,
-      expense.kind === "settlement" ? "payment.deleted" : "expense.deleted",
-      logDetails
-    );
+    await withTransaction(async (tx) => {
+      await tx.delete(expensePayers).where(eq(expensePayers.expenseId, expenseId));
+      await tx.delete(expenseShares).where(eq(expenseShares.expenseId, expenseId));
+      await tx.delete(expenses).where(eq(expenses.id, expenseId));
+      await logActivity(
+        tx,
+        expense.groupId,
+        user,
+        expense.kind === "settlement" ? "payment.deleted" : "expense.deleted",
+        logDetails
+      );
+    });
     revalidateGroup(expense.groupId);
     return { ok: true };
   } catch (e) {

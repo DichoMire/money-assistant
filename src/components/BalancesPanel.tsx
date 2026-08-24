@@ -1,10 +1,11 @@
 "use client";
 
 import { formatCents } from "@/lib/money";
+import { eurToBgnCents } from "@/lib/rates";
 import { ROUNDING_WRITE_OFF_CENTS, type Debt } from "@/lib/simplify";
 import type { GroupDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
-import { useT } from "./LocaleProvider";
+import { useLocale, useT } from "./LocaleProvider";
 
 export function BalancesPanel({
   data,
@@ -20,9 +21,18 @@ export function BalancesPanel({
   onSettle: (debt: Debt) => void;
 }) {
   const t = useT();
+  const locale = useLocale();
   const names = new Map(data.aliases.map((a) => [a.id, a.name]));
   const name = (id: string) => names.get(id) ?? "?";
   const debts = simplify ? data.simplifiedDebts : data.pairwiseDebts;
+  const money = (cents: number) => formatCents(cents, data.currency, locale);
+  // Informational leva equivalent (account setting), EUR amounts only.
+  const lv = (cents: number) =>
+    data.showBgnEquivalent && data.currency === "EUR" ? (
+      <span className="ml-1 text-xs font-normal text-gray-400">
+        ≈ {formatCents(eurToBgnCents(cents), "BGN", locale)}
+      </span>
+    ) : null;
 
   // Chips are derived from the payment list on display, so they always agree
   // with it exactly — including after tiny rounding write-offs.
@@ -40,6 +50,20 @@ export function BalancesPanel({
 
   return (
     <div className="space-y-5">
+      {data.rates.excludedCount > 0 && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <p className="font-semibold">
+            ⚠️{" "}
+            {data.rates.excludedCount === 1
+              ? t("balances.excludedOne", { currency: data.currency })
+              : t("balances.excludedMany", {
+                  count: data.rates.excludedCount,
+                  currency: data.currency,
+                })}
+          </p>
+          <p className="mt-1 text-xs text-red-600">{t("balances.excludedHint")}</p>
+        </div>
+      )}
       <div className="card px-4 py-4">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-bold text-gray-800">{t("balances.title")}</h2>
@@ -81,7 +105,8 @@ export function BalancesPanel({
               ) : (
                 <span className={`font-bold ${b.net > 0 ? "amount-pos" : "amount-neg"}`}>
                   {b.net > 0 ? t("balances.getsBack") : t("balances.owes")}{" "}
-                  {formatCents(Math.abs(b.net), data.currency)}
+                  {money(Math.abs(b.net))}
+                  {lv(Math.abs(b.net))}
                 </span>
               )}
             </li>
@@ -89,7 +114,7 @@ export function BalancesPanel({
         </ul>
         {hasWriteOff && (
           <p className="mt-3 text-xs text-gray-400">
-            {t("balances.writeOff", { amount: formatCents(ROUNDING_WRITE_OFF_CENTS, data.currency) })}
+            {t("balances.writeOff", { amount: money(ROUNDING_WRITE_OFF_CENTS) })}
           </p>
         )}
       </div>
@@ -117,7 +142,8 @@ export function BalancesPanel({
                   <span className="font-medium">{name(d.toAliasId)}</span>
                 </span>
                 <span className="font-bold text-gray-800">
-                  {formatCents(d.amountCents, data.currency)}
+                  {money(d.amountCents)}
+                  {lv(d.amountCents)}
                 </span>
                 <button
                   type="button"

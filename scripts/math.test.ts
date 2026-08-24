@@ -9,7 +9,14 @@ import {
   simplifiedDebts,
   type BalanceTransaction,
 } from "../src/lib/simplify";
-import { convertCents, findRateRow, ratesAreStale } from "../src/lib/rates";
+import {
+  convertCents,
+  eurToBgnCents,
+  findRateRow,
+  isFixedLegPair,
+  ratesAreStale,
+  roundHalfUp,
+} from "../src/lib/rates";
 
 function shares(result: ReturnType<typeof computeShares>) {
   assert.equal(result.ok, true, !result.ok ? result.error : "");
@@ -25,6 +32,21 @@ assert.equal(parseAmount("12.34"), 1234);
 assert.equal(parseAmount("12,3"), 1230);
 assert.equal(parseAmount("7"), 700);
 assert.equal(parseAmount("abc"), null);
+// EU/BG conventions (deterministic separator rules)
+assert.equal(parseAmount("12,34"), 1234);
+assert.equal(parseAmount("1 234,56"), 123456); // space thousands
+assert.equal(parseAmount("1 234,56"), 123456); // NBSP thousands (as bg-BG formats)
+assert.equal(parseAmount("1,234.56"), 123456); // en grouping
+assert.equal(parseAmount("1.234,56"), 123456); // bg/de grouping
+assert.equal(parseAmount("1.234"), 123400); // 3 trailing digits = thousands, was silently 123
+assert.equal(parseAmount("1,234"), 123400);
+assert.equal(parseAmount("1.234.567"), 123456700); // repeated separator = grouping
+assert.equal(parseAmount("1,2345"), null); // >2 decimals is invalid
+assert.equal(parseAmount("-12,34"), -1234);
+assert.equal(parseAmount("12."), 1200); // trailing separator tolerated
+assert.equal(parseAmount("0,5"), 50);
+assert.equal(parseAmount(","), null);
+assert.equal(parseAmount(""), null);
 
 // ---- splits ----
 const A = "a", B = "b", C = "c";
@@ -188,5 +210,27 @@ assert.equal(convertCents(1000, "USD", "USD", null), 1000);
 assert.equal(ratesAreStale("2026-08-15", "2026-08-23"), true);
 assert.equal(ratesAreStale("2026-08-16", "2026-08-23"), false);
 assert.equal(ratesAreStale(null, "2026-08-23"), true);
+
+// ---- fixed euro legs (post-changeover BGN) ----
+assert.equal(roundHalfUp(0.5), 1);
+assert.equal(roundHalfUp(-0.5), -1); // half away from zero, unlike Math.round
+assert.equal(roundHalfUp(2.4), 2);
+// BGN <-> EUR needs NO rate row at all (fixed legal rate 1.95583).
+assert.equal(convertCents(19558, "BGN", "EUR", null), 10000); // 195.58 лв -> 100.00 €
+assert.equal(convertCents(100, "BGN", "EUR", null), 51); // 0.5113 -> half-up
+assert.equal(convertCents(10000, "EUR", "BGN", null), 19558);
+assert.equal(convertCents(-100, "BGN", "EUR", null), -51); // symmetric negatives
+// Round-trip stays within a stotinka.
+assert.ok(Math.abs(convertCents(convertCents(1234, "BGN", "EUR", null)!, "EUR", "BGN", null)! - 1234) <= 1);
+// The fixed rate wins over any stored (4-decimal ECB reference) row value.
+assert.equal(convertCents(195583, "BGN", "EUR", rows[0]), 100000);
+// Mixed pair chains the fixed leg first: BGN -> EUR (fixed) -> USD (row).
+assert.equal(convertCents(19558, "BGN", "USD", rows[0]), Math.round(10000 * 1.1));
+assert.equal(convertCents(1000, "BGN", "USD", null), null); // floating leg missing
+assert.equal(eurToBgnCents(2000), 3912); // 20.00 € ≈ 39.12 лв
+assert.equal(isFixedLegPair("BGN", "EUR"), true);
+assert.equal(isFixedLegPair("EUR", "BGN"), true);
+assert.equal(isFixedLegPair("BGN", "USD"), false);
+assert.equal(isFixedLegPair("USD", "USD"), true);
 
 console.log("All math tests passed.");

@@ -1,5 +1,6 @@
-import { neon } from "@neondatabase/serverless";
+import { neon, neonConfig, Pool } from "@neondatabase/serverless";
 import { drizzle as drizzleNeon, type NeonHttpDatabase } from "drizzle-orm/neon-http";
+import { drizzle as drizzleNeonWs } from "drizzle-orm/neon-serverless";
 import * as schema from "./schema";
 
 export type Db = NeonHttpDatabase<typeof schema>;
@@ -32,6 +33,40 @@ export function getDb(): Promise<Db> {
     globalForDb.__dbPromise = init();
   }
   return globalForDb.__dbPromise;
+}
+
+/**
+ * Run `fn` inside a real database transaction, so multi-statement mutations
+ * (delete-then-reinsert of payers/shares, group deletion, alias merges) can
+ * never be left half-applied by a mid-flight failure.
+ *
+ * The everyday `getDb()` handle stays on the Neon HTTP driver (cheapest for
+ * single reads) which cannot do interactive transactions — so this opens a
+ * short-lived WebSocket Pool per call in production. PGlite (local dev)
+ * supports transactions natively. The `tx` handle is structurally the same
+ * query-builder surface as `Db`; the casts below bridge the driver-specific
+ * transaction types.
+ */
+export async function withTransaction<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
+  const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
+  if (!url) {
+    const db = (await getDb()) as unknown as {
+      transaction: <R>(f: (tx: unknown) => Promise<R>) => Promise<R>;
+    };
+    return db.transaction(async (tx) => fn(tx as unknown as Db));
+  }
+  // Node < 22 has no global WebSocket client; hand the driver the ws package.
+  if (!neonConfig.webSocketConstructor && typeof WebSocket === "undefined") {
+    const { default: ws } = await import("ws");
+    neonConfig.webSocketConstructor = ws as unknown as typeof globalThis.WebSocket;
+  }
+  const pool = new Pool({ connectionString: url });
+  try {
+    const db = drizzleNeonWs(pool, { schema });
+    return await db.transaction(async (tx) => fn(tx as unknown as Db));
+  } finally {
+    await pool.end();
+  }
 }
 
 export { schema };

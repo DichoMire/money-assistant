@@ -1,26 +1,92 @@
-export function formatCents(cents: number, currency: string): string {
+import type { Locale } from "./i18n";
+
+const BCP47: Record<Locale, string> = { en: "en-US", bg: "bg-BG" };
+const formatterCache = new Map<string, Intl.NumberFormat>();
+
+/**
+ * Locale-aware money formatting: en -> "€12.34", bg -> "12,34 €" (decimal
+ * comma, symbol after the amount, per CLDR bg conventions). The locale
+ * defaults to "en" so stored audit-log fragments keep their historical
+ * formatting; UI call sites pass the viewer's locale.
+ */
+export function formatCents(cents: number, currency: string, locale: Locale = "en"): string {
+  const key = `${locale}:${currency}`;
   try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency,
-    }).format(cents / 100);
+    let fmt = formatterCache.get(key);
+    if (!fmt) {
+      fmt = new Intl.NumberFormat(BCP47[locale] ?? "en-US", {
+        style: "currency",
+        currency,
+        currencyDisplay: "narrowSymbol",
+      });
+      formatterCache.set(key, fmt);
+    }
+    return fmt.format(cents / 100);
   } catch {
     return `${(cents / 100).toFixed(2)} ${currency}`;
   }
 }
 
-/** Parse a user-typed amount ("12.34", "12,34", "12") into integer cents. Returns null if invalid. */
+// Spaces users type as thousands separators. JS \s already matches NBSP
+// (U+00A0) and narrow NBSP (U+202F), which bg-BG formatting itself produces,
+// so pasted amounts round-trip.
+const SPACE_RE = /\s/g;
+
+/**
+ * Parse a user-typed amount into integer cents, accepting both the Bulgarian
+ * ("1 234,56", "12,34") and English ("1,234.56", "12.34") conventions.
+ * Deterministic rules, rightmost-separator-wins:
+ *  - both "." and "," present -> the rightmost one is the decimal separator;
+ *  - a single separator followed by exactly 3 digits is a thousands separator
+ *    ("1.234" -> 1234.00), by 1-2 digits a decimal one ("1.23" -> 1.23);
+ *  - more than 2 decimal digits is invalid ("1,2345" -> null).
+ * Returns null if invalid.
+ */
 export function parseAmount(input: string): number | null {
-  const normalized = input.trim().replace(",", ".");
-  if (!/^-?\d+(\.\d{0,})?$/.test(normalized)) return null;
-  const value = Number(normalized);
-  if (!Number.isFinite(value)) return null;
-  return Math.round(value * 100);
+  let s = input.trim().replace(SPACE_RE, "");
+  if (s === "") return null;
+  let sign = 1;
+  if (s.startsWith("-")) {
+    sign = -1;
+    s = s.slice(1);
+  }
+  if (!/^[\d.,]+$/.test(s) || !/\d/.test(s)) return null;
+
+  const lastDot = s.lastIndexOf(".");
+  const lastComma = s.lastIndexOf(",");
+  let decimalSep: string | null = null;
+  if (lastDot !== -1 && lastComma !== -1) {
+    decimalSep = lastDot > lastComma ? "." : ",";
+  } else if (lastDot !== -1 || lastComma !== -1) {
+    const sep = lastDot !== -1 ? "." : ",";
+    const occurrences = s.split(sep).length - 1;
+    const trailing = s.length - 1 - Math.max(lastDot, lastComma);
+    if (occurrences > 1 || trailing === 3) decimalSep = null; // thousands grouping
+    else if (trailing <= 2) decimalSep = sep;
+    else return null; // e.g. "1,2345"
+  }
+
+  let intPart = s;
+  let decPart = "";
+  if (decimalSep) {
+    const at = s.lastIndexOf(decimalSep);
+    intPart = s.slice(0, at);
+    decPart = s.slice(at + 1);
+  }
+  const groupingSep = decimalSep === "." ? "," : decimalSep === "," ? "." : null;
+  if (groupingSep) intPart = intPart.split(groupingSep).join("");
+  if (!decimalSep) intPart = intPart.replace(/[.,]/g, "");
+  if (intPart === "" && decPart === "") return null;
+  if (!/^\d*$/.test(intPart) || !/^\d*$/.test(decPart) || decPart.length > 2) return null;
+
+  const cents = Number(intPart || "0") * 100 + Number((decPart || "0").padEnd(2, "0").slice(0, 2));
+  if (!Number.isFinite(cents)) return null;
+  return sign * cents;
 }
 
-/** Parse a plain number ("2", "33.33", "-5") for percent/share/adjustment inputs. */
+/** Parse a plain number ("2", "33.33", "33,33", "-5") for percent/share/adjustment inputs. */
 export function parseNumber(input: string): number | null {
-  const normalized = input.trim().replace(",", ".");
+  const normalized = input.trim().replace(SPACE_RE, "").replace(",", ".");
   if (normalized === "") return null;
   const value = Number(normalized);
   return Number.isFinite(value) ? value : null;

@@ -12,7 +12,7 @@ import { Modal } from "./Modal";
 function describe(entry: ActivityEntryDto, t: TFunc, locale: Locale): string {
   const d = entry.details;
   const s = (key: string) => String(d[key] ?? "?");
-  const money = () => formatCents(Number(d.amountCents ?? 0), String(d.currency ?? "USD"));
+  const money = () => formatCents(Number(d.amountCents ?? 0), String(d.currency ?? "USD"), locale);
   // Stored details.changes fragments are historical data and stay as written.
   const merchant = d.merchant ? t("activity.fromMerchant", { merchant: s("merchant") }) : "";
   switch (entry.action) {

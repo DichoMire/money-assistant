@@ -10,6 +10,13 @@
 > plus web-verified market research. Each improvement area below links to a **research
 > doc** (the evidence) and an **RFC** (an implementation plan written for a future LLM
 > implementer). Nothing in this package changes code.
+>
+> **Implementation status:** a first "personal project" batch shipped on 2026-08-24 —
+> the P0 euro fix, locale-correct money parsing/formatting, DB transactions, PWA
+> installability, and first-run/engagement polish (a paid-LLM switch was made and then
+> reverted by owner decision — receipt scanning stays on free models). See
+> [IMPLEMENTATION-LOG.md](IMPLEMENTATION-LOG.md) for exactly what was built, deviations
+> from the RFCs, and what remains; affected RFCs carry status stamps.
 
 ---
 

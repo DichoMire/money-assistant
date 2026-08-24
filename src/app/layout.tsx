@@ -27,6 +27,14 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: "Money Assistant",
     description: t("app.tagline"),
+    icons: {
+      apple: "/apple-touch-icon.png",
+    },
+    appleWebApp: {
+      capable: true,
+      title: "Money Assistant",
+      statusBarStyle: "default",
+    },
   };
 }
 
