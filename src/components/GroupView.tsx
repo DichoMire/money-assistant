@@ -52,10 +52,11 @@ export function GroupView({ data }: { data: GroupDto }) {
             {!isOwner && " · you're a member"}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        {/* Phones get a uniform 3-column grid of actions instead of a ragged wrap. */}
+        <div className="flex flex-wrap gap-2 max-sm:grid max-sm:w-full max-sm:grid-cols-3">
           <button
             type="button"
-            className="btn btn-primary"
+            className="btn btn-primary max-sm:!px-2"
             onClick={() => setModal({ type: "expense" })}
             disabled={data.aliases.length === 0}
           >
@@ -63,7 +64,7 @@ export function GroupView({ data }: { data: GroupDto }) {
           </button>
           <Link
             href={`/groups/${data.id}/scan`}
-            className={`btn btn-secondary ${
+            className={`btn btn-secondary max-sm:!px-2 ${
               data.aliases.length === 0 ? "pointer-events-none opacity-50" : ""
             }`}
             aria-disabled={data.aliases.length === 0}
@@ -72,20 +73,20 @@ export function GroupView({ data }: { data: GroupDto }) {
           </Link>
           <button
             type="button"
-            className="btn btn-secondary"
+            className="btn btn-secondary max-sm:!px-2"
             onClick={() => setModal({ type: "settle" })}
             disabled={data.aliases.length < 2}
           >
             Settle up
           </button>
-          <button type="button" className="btn btn-secondary" onClick={() => setModal({ type: "members" })}>
+          <button type="button" className="btn btn-secondary max-sm:!px-2" onClick={() => setModal({ type: "members" })}>
             People
           </button>
-          <button type="button" className="btn btn-secondary" onClick={() => setModal({ type: "activity" })}>
+          <button type="button" className="btn btn-secondary max-sm:!px-2" onClick={() => setModal({ type: "activity" })}>
             Activity
           </button>
           {isOwner && (
-            <button type="button" className="btn btn-secondary" onClick={() => setModal({ type: "settings" })}>
+            <button type="button" className="btn btn-secondary max-sm:!px-2" onClick={() => setModal({ type: "settings" })}>
               Settings
             </button>
           )}
@@ -114,13 +115,16 @@ export function GroupView({ data }: { data: GroupDto }) {
               onSelect={(expense) => setModal({ type: "detail", expenseId: expense.id })}
             />
           </div>
-          <BalancesPanel
-            data={data}
-            simplify={simplify}
-            canToggle={isOwner}
-            onToggleSimplify={toggleSimplify}
-            onSettle={(debt) => setModal({ type: "settle", prefill: debt })}
-          />
+          {/* On stacked (non-desktop) layouts, balances come before the expense list. */}
+          <div className="max-lg:order-first">
+            <BalancesPanel
+              data={data}
+              simplify={simplify}
+              canToggle={isOwner}
+              onToggleSimplify={toggleSimplify}
+              onSettle={(debt) => setModal({ type: "settle", prefill: debt })}
+            />
+          </div>
         </div>
       )}
 

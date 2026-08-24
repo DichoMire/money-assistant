@@ -96,7 +96,7 @@ export function SettleModal({
           <p className="text-sm text-red-600">Payer and recipient must be different people.</p>
         )}
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 max-sm:flex-wrap">
           <div className="w-28 shrink-0">
             <label className="label" htmlFor="settle-cur">Currency</label>
             <select id="settle-cur" className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>
@@ -117,7 +117,7 @@ export function SettleModal({
               autoFocus={!settlement}
             />
           </div>
-          <div className="w-36 shrink-0">
+          <div className="w-36 shrink-0 max-sm:w-full">
             <label className="label" htmlFor="settle-date">Date</label>
             <input id="settle-date" type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>

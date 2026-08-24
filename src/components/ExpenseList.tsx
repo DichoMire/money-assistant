@@ -64,7 +64,7 @@ export function ExpenseList({
             key={e.id}
             type="button"
             onClick={() => onSelect(e)}
-            className="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50"
+            className="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50 max-sm:gap-2 max-sm:px-3"
           >
             <span className="w-14 shrink-0 text-xs leading-tight text-gray-400">
               {formatDate(e.date)}

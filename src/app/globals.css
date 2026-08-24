@@ -72,3 +72,27 @@ body {
 .amount-neg {
   color: var(--owe);
 }
+
+/* ---- Mobile-only adjustments (below Tailwind's `sm` breakpoint). ---- */
+@media (width < 40rem) {
+  .input {
+    /* iOS Safari auto-zooms into focused fields with a font under 16px. */
+    font-size: 1rem;
+  }
+  .btn {
+    @apply py-2.5;
+  }
+  .btn,
+  .input {
+    touch-action: manipulation;
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}

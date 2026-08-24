@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -15,6 +15,13 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Money Assistant",
   description: "Track group expenses, split bills, and simplify who pays whom.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  // Lets the bottom-sheet modals pad themselves past the iPhone home bar.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

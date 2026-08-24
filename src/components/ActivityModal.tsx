@@ -92,8 +92,8 @@ export function ActivityModal({ group, onClose }: { group: GroupDto; onClose: ()
         <>
           <ul className="max-h-96 divide-y divide-gray-100 overflow-y-auto">
             {entries.map((entry) => (
-              <li key={entry.id} className="flex gap-3 py-2 text-sm">
-                <span className="w-28 shrink-0 pt-0.5 text-xs leading-tight text-gray-400">
+              <li key={entry.id} className="flex gap-3 py-2 text-sm max-sm:flex-col max-sm:gap-0.5">
+                <span className="w-28 shrink-0 pt-0.5 text-xs leading-tight text-gray-400 max-sm:w-auto">
                   {timestamp(entry.createdAt)}
                 </span>
                 <span className="min-w-0 flex-1 text-gray-600">

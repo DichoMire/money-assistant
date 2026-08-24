@@ -207,7 +207,7 @@ export function ExpenseModal({
           autoFocus={!expense}
         />
       </div>
-      <div className="flex gap-2">
+      <div className="flex gap-2 max-sm:flex-wrap">
         <div className="w-28 shrink-0">
           <label className="label" htmlFor="exp-cur">Currency</label>
           <select id="exp-cur" className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>
@@ -227,7 +227,7 @@ export function ExpenseModal({
             onChange={(e) => setAmountStr(e.target.value)}
           />
         </div>
-        <div className="w-36 shrink-0">
+        <div className="w-36 shrink-0 max-sm:w-full">
           <label className="label" htmlFor="exp-date">Date</label>
           <input id="exp-date" type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>

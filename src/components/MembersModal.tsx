@@ -104,7 +104,7 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                     <Avatar id={c.userId} name={c.name} size={28} />
                     <span className="min-w-0 flex-1 truncate">
                       <span className="text-sm font-medium text-gray-700">{c.name}</span>{" "}
-                      <span className="text-xs text-gray-400">{c.email}</span>
+                      <span className="text-xs text-gray-400 max-sm:block max-sm:truncate">{c.email}</span>
                     </span>
                     <button
                       type="button"
@@ -140,8 +140,8 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
               <p className="text-xs font-semibold text-gray-500 uppercase">Invite link</p>
               {link ? (
                 <>
-                  <div className="mt-2 flex gap-2">
-                    <input className="input !py-1.5 font-mono !text-xs" readOnly value={link.url} onFocus={(e) => e.target.select()} />
+                  <div className="mt-2 flex gap-2 max-sm:flex-wrap">
+                    <input className="input !py-1.5 font-mono !text-xs max-sm:!text-base" readOnly value={link.url} onFocus={(e) => e.target.select()} />
                     <button type="button" className="btn btn-primary shrink-0 !px-3 !py-1.5 !text-xs" onClick={() => void copyLink(link.url)}>
                       {copied ? "Copied!" : "Copy"}
                     </button>
@@ -195,7 +195,7 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                   <Avatar id={m.aliasId ?? m.userId} name={m.name} size={30} />
                   {alias && editingId === alias.id ? (
                     <form
-                      className="flex flex-1 gap-2"
+                      className="flex flex-1 gap-2 max-sm:flex-wrap"
                       onSubmit={async (e) => {
                         e.preventDefault();
                         if (await run(() => renameAlias(alias.id, editName))) setEditingId(null);
@@ -209,7 +209,7 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                     <>
                       <span className="min-w-0 flex-1 truncate">
                         <span className="text-sm font-medium text-gray-700">{alias?.name ?? m.name}</span>{" "}
-                        <span className="text-xs text-gray-400">{m.email}</span>
+                        <span className="text-xs text-gray-400 max-sm:block max-sm:truncate">{m.email}</span>
                       </span>
                       {m.isOwner && (
                         <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
@@ -280,7 +280,7 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                   </form>
                 ) : attachingId === a.id ? (
                   <form
-                    className="flex min-w-0 flex-1 items-center gap-2"
+                    className="flex min-w-0 flex-1 items-center gap-2 max-sm:flex-wrap"
                     onSubmit={async (e) => {
                       e.preventDefault();
                       const target = group.members.find((m) => m.userId === attachTarget);

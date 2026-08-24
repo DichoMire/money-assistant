@@ -255,7 +255,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
         {/* ---- receipt meta ---- */}
         <div className="card space-y-3 px-4 py-4">
           <div className="flex flex-wrap gap-2">
-            <div className="min-w-40 flex-1">
+            <div className="min-w-40 flex-1 max-sm:basis-full">
               <label className="label" htmlFor="scan-merchant">Merchant</label>
               <input
                 id="scan-merchant"
@@ -265,7 +265,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                 onChange={(e) => setMerchantStr(e.target.value)}
               />
             </div>
-            <div className="w-36 shrink-0">
+            <div className="w-36 shrink-0 max-sm:flex-1">
               <label className="label" htmlFor="scan-date">Date</label>
               <input
                 id="scan-date"
@@ -289,23 +289,24 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
               </select>
             </div>
           </div>
+          {/* Four money fields: one row on desktop, a 2×2 grid on phones. */}
           <div className="flex flex-wrap gap-2">
-            <div className="w-24 flex-1">
+            <div className="w-24 flex-1 max-sm:w-[calc(50%-0.25rem)] max-sm:flex-none">
               <label className="label" htmlFor="scan-tax">Tax</label>
               <input id="scan-tax" className="input" placeholder="0.00" inputMode="decimal"
                 value={taxStr} onChange={(e) => setTaxStr(e.target.value)} />
             </div>
-            <div className="w-24 flex-1">
+            <div className="w-24 flex-1 max-sm:w-[calc(50%-0.25rem)] max-sm:flex-none">
               <label className="label" htmlFor="scan-tip">Tip</label>
               <input id="scan-tip" className="input" placeholder="0.00" inputMode="decimal"
                 value={tipStr} onChange={(e) => setTipStr(e.target.value)} />
             </div>
-            <div className="w-24 flex-1">
+            <div className="w-24 flex-1 max-sm:w-[calc(50%-0.25rem)] max-sm:flex-none">
               <label className="label" htmlFor="scan-disc">Discount</label>
               <input id="scan-disc" className="input" placeholder="0.00" inputMode="decimal"
                 value={discountStr} onChange={(e) => setDiscountStr(e.target.value)} />
             </div>
-            <div className="w-28 flex-1">
+            <div className="w-28 flex-1 max-sm:w-[calc(50%-0.25rem)] max-sm:flex-none">
               <label className="label" htmlFor="scan-total">Receipt total</label>
               <input id="scan-total" className="input font-semibold" placeholder="0.00" inputMode="decimal"
                 value={totalStr} onChange={(e) => setTotalStr(e.target.value)} />
@@ -386,7 +387,9 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                       </p>
                     )}
                   </div>
-                  <div className="w-14 shrink-0">
+                  {/* Phone layout via order utilities: name + remove on the first
+                      line, qty + price on the second, assignment full-width below. */}
+                  <div className="w-14 shrink-0 max-sm:order-1">
                     <input
                       className="input !px-2 !py-1.5 text-right"
                       aria-label="Quantity"
@@ -395,7 +398,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                       onChange={(e) => updateItem(it.key, { qtyStr: e.target.value })}
                     />
                   </div>
-                  <div className="w-24 shrink-0">
+                  <div className="w-24 shrink-0 max-sm:order-1 max-sm:flex-1">
                     <input
                       className={`input !py-1.5 text-right ${itemCents !== null && itemCents < 0 ? "amount-neg" : ""}`}
                       placeholder="0.00"
@@ -405,7 +408,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                       onChange={(e) => updateItem(it.key, { totalStr: e.target.value })}
                     />
                   </div>
-                  <div className="w-44 shrink-0">
+                  <div className="w-44 shrink-0 max-sm:order-2 max-sm:w-full">
                     <select
                       className="input !py-1.5"
                       aria-label="Who pays for this item"
