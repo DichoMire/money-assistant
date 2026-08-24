@@ -5,6 +5,7 @@ import { deleteExpense } from "@/app/actions";
 import { formatDate } from "@/lib/format";
 import { formatCents } from "@/lib/money";
 import type { ExpenseDto, GroupDto } from "@/lib/types";
+import { useConfirm } from "./ConfirmModal";
 import { useLocale, useT } from "./LocaleProvider";
 
 export function ExpenseList({
@@ -16,6 +17,7 @@ export function ExpenseList({
 }) {
   const t = useT();
   const locale = useLocale();
+  const { ask, confirmElement } = useConfirm();
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const names = new Map(data.aliases.map((a) => [a.id, a.name]));
   const name = (id: string) => names.get(id) ?? "?";
@@ -31,16 +33,22 @@ export function ExpenseList({
     return paid - owed;
   };
 
-  const remove = async (expense: ExpenseDto) => {
+  const remove = (expense: ExpenseDto) => {
+    const amount = formatCents(expense.amountCents, expense.currency);
     const message =
       expense.kind === "settlement"
-        ? t("expenses.deletePaymentConfirm")
-        : t("expenses.deleteExpenseConfirm");
-    if (!window.confirm(message)) return;
-    setDeletingId(expense.id);
-    const result = await deleteExpense(expense.id);
-    setDeletingId(null);
-    if (!result.ok) window.alert(result.error);
+        ? t("expenses.deletePaymentConfirm", {
+            from: name(expense.payers[0]?.aliasId ?? ""),
+            to: name(expense.shares[0]?.aliasId ?? ""),
+            amount,
+          })
+        : t("expenses.deleteExpenseConfirm", { description: expense.description, amount });
+    ask(message, async () => {
+      setDeletingId(expense.id);
+      const result = await deleteExpense(expense.id);
+      setDeletingId(null);
+      if (!result.ok) window.alert(result.error);
+    });
   };
 
   if (data.expenses.length === 0) {
@@ -53,6 +61,7 @@ export function ExpenseList({
   }
 
   return (
+    <>
     <div className="card divide-y divide-gray-100">
       {data.expenses.map((e) => {
         const foreign = e.currency !== data.currency;
@@ -162,13 +171,13 @@ export function ExpenseList({
               className="ml-1 shrink-0 rounded-md px-2 py-1 text-lg leading-none text-gray-300 hover:bg-red-50 hover:text-red-500"
               onClick={(ev) => {
                 ev.stopPropagation();
-                void remove(e);
+                remove(e);
               }}
               onKeyDown={(ev) => {
                 if (ev.key === "Enter" || ev.key === " ") {
                   ev.preventDefault();
                   ev.stopPropagation();
-                  void remove(e);
+                  remove(e);
                 }
               }}
             >
@@ -178,5 +187,7 @@ export function ExpenseList({
         );
       })}
     </div>
+    {confirmElement}
+    </>
   );
 }

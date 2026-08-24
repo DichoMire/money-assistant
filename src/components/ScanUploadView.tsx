@@ -8,6 +8,7 @@ import { formatDate } from "@/lib/format";
 import { countWord, type TFunc } from "@/lib/i18n";
 import { formatCents } from "@/lib/money";
 import type { GroupDto, ScanSummaryDto } from "@/lib/types";
+import { useConfirm } from "./ConfirmModal";
 import { useLocale, useT } from "./LocaleProvider";
 
 // Long grocery receipts need vertical resolution — a 45-line receipt squeezed
@@ -67,6 +68,7 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
   const router = useRouter();
   const t = useT();
   const locale = useLocale();
+  const { ask, confirmElement } = useConfirm();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -103,13 +105,20 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
     setBusy(null);
   };
 
-  const removeScan = async (scan: ScanSummaryDto) => {
-    if (!window.confirm(t("scan.deleteConfirm"))) return;
-    setDeletingId(scan.id);
-    const result = await deleteScan(scan.id);
-    setDeletingId(null);
-    if (result.ok) router.refresh();
-    else window.alert(result.error);
+  const removeScan = (scan: ScanSummaryDto) => {
+    ask(
+      t("scan.deleteConfirm", {
+        name: scan.merchant ?? t("scan.receiptFallback"),
+        amount: formatCents(scan.totalCents, scan.currency),
+      }),
+      async () => {
+        setDeletingId(scan.id);
+        const result = await deleteScan(scan.id);
+        setDeletingId(null);
+        if (result.ok) router.refresh();
+        else window.alert(result.error);
+      }
+    );
   };
 
   return (
@@ -236,7 +245,7 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
                   className="cursor-pointer rounded-md px-2 py-0.5 text-lg leading-none text-gray-300 hover:bg-red-50 hover:text-red-500"
                   aria-label={t("scan.deleteAria")}
                   disabled={deletingId === scan.id}
-                  onClick={() => void removeScan(scan)}
+                  onClick={() => removeScan(scan)}
                 >
                   &times;
                 </button>
@@ -245,6 +254,7 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
           </ul>
         </div>
       )}
+      {confirmElement}
     </div>
   );
 }

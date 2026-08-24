@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { deleteGroup, updateGroup } from "@/app/actions";
 import { CURRENCIES } from "@/lib/currencies";
 import type { GroupDto } from "@/lib/types";
+import { useConfirm } from "./ConfirmModal";
 import { useT } from "./LocaleProvider";
 import { Modal } from "./Modal";
 
@@ -25,15 +26,19 @@ export function SettingsModal({ group, onClose }: { group: GroupDto; onClose: ()
     else setError(result.error);
   };
 
-  const remove = async () => {
-    if (!window.confirm(t("settings.deleteConfirm", { name: group.name }))) {
-      return;
-    }
-    setBusy(true);
-    const result = await deleteGroup(group.id);
-    setBusy(false);
-    if (result.ok) router.push("/");
-    else setError(result.ok === false ? result.error : null);
+  const { ask, confirmElement } = useConfirm();
+  const remove = () => {
+    ask(
+      t("settings.deleteConfirm", { name: group.name }),
+      async () => {
+        setBusy(true);
+        const result = await deleteGroup(group.id);
+        setBusy(false);
+        if (result.ok) router.push("/");
+        else setError(result.ok === false ? result.error : null);
+      },
+      t("settings.deleteGroup")
+    );
   };
 
   return (
@@ -68,11 +73,12 @@ export function SettingsModal({ group, onClose }: { group: GroupDto; onClose: ()
 
         <div className="rounded-lg border border-red-100 bg-red-50/50 px-3 py-3">
           <p className="mb-2 text-xs font-semibold text-red-600 uppercase">{t("settings.dangerZone")}</p>
-          <button type="button" className="btn btn-danger" onClick={() => void remove()} disabled={busy}>
+          <button type="button" className="btn btn-danger" onClick={remove} disabled={busy}>
             {t("settings.deleteGroup")}
           </button>
         </div>
       </div>
+      {confirmElement}
     </Modal>
   );
 }

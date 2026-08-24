@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { LocaleProvider } from "@/components/LocaleProvider";
 import { getLocale, getT } from "@/lib/i18n-server";
@@ -13,6 +13,14 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin", "cyrillic"],
 });
+
+// Edge-to-edge phones draw the page behind the status bar; claim that area
+// (viewport-fit=cover) so the white header can pad itself into it, and keep
+// the browser-painted chrome white to match.
+export const viewport: Viewport = {
+  themeColor: "#ffffff",
+  viewportFit: "cover",
+};
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getT();

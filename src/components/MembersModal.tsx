@@ -18,6 +18,7 @@ import {
 import { formatDate } from "@/lib/format";
 import type { CircleUserDto, GroupDto, InviteLinkDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
+import { useConfirm } from "./ConfirmModal";
 import { useLocale, useT } from "./LocaleProvider";
 import { Modal } from "./Modal";
 
@@ -25,6 +26,7 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
   const router = useRouter();
   const t = useT();
   const locale = useLocale();
+  const { ask, confirmElement } = useConfirm();
   const isOwner = group.myRole === "owner";
 
   const [query, setQuery] = useState("");
@@ -234,9 +236,13 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                           className="cursor-pointer rounded-md px-2 py-0.5 text-xs font-semibold text-gray-400 hover:bg-red-50 hover:text-red-500"
                           disabled={busy}
                           onClick={() => {
-                            if (window.confirm(t("members.removeConfirm", { name: m.name }))) {
-                              void run(() => removeMember(group.id, m.userId)).then(() => reloadInviteData());
-                            }
+                            ask(
+                              t("members.removeConfirm", { name: m.name }),
+                              () => {
+                                void run(() => removeMember(group.id, m.userId)).then(() => reloadInviteData());
+                              },
+                              t("members.remove")
+                            );
                           }}
                         >
                           {t("members.remove")}
@@ -279,7 +285,7 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                 ) : attachingId === a.id ? (
                   <form
                     className="flex min-w-0 flex-1 items-center gap-2 max-sm:flex-wrap"
-                    onSubmit={async (e) => {
+                    onSubmit={(e) => {
                       e.preventDefault();
                       const target = group.members.find((m) => m.userId === attachTarget);
                       if (!target) return;
@@ -292,8 +298,15 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                         name: target.name,
                         email: target.email,
                       });
-                      if (!window.confirm(`${question} ${detail}`)) return;
-                      if (await run(() => attachAlias(a.id, attachTarget))) setAttachingId(null);
+                      ask(
+                        `${question} ${detail}`,
+                        () => {
+                          void run(() => attachAlias(a.id, attachTarget)).then((ok) => {
+                            if (ok) setAttachingId(null);
+                          });
+                        },
+                        t("members.attach")
+                      );
                     }}
                   >
                     <span className="shrink-0 truncate text-sm font-medium text-gray-700">{a.name} →</span>
@@ -349,9 +362,13 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                           className="cursor-pointer rounded-md px-2 py-1 text-lg leading-none text-gray-300 hover:bg-red-50 hover:text-red-500"
                           aria-label={t("members.removeAria", { name: a.name })}
                           onClick={() => {
-                            if (window.confirm(t("members.removeAliasConfirm", { name: a.name }))) {
-                              void run(() => deleteAlias(a.id));
-                            }
+                            ask(
+                              t("members.removeAliasConfirm", { name: a.name }),
+                              () => {
+                                void run(() => deleteAlias(a.id));
+                              },
+                              t("members.remove")
+                            );
                           }}
                         >
                           ×
@@ -393,10 +410,16 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
               type="button"
               className="btn btn-danger"
               disabled={busy}
-              onClick={async () => {
-                if (window.confirm(t("members.leaveConfirm", { name: group.name }))) {
-                  if (await run(() => leaveGroup(group.id))) router.push("/");
-                }
+              onClick={() => {
+                ask(
+                  t("members.leaveConfirm", { name: group.name }),
+                  () => {
+                    void run(() => leaveGroup(group.id)).then((ok) => {
+                      if (ok) router.push("/");
+                    });
+                  },
+                  t("members.leaveGroup")
+                );
               }}
             >
               {t("members.leaveGroup")}
@@ -404,6 +427,7 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
           </div>
         )}
       </div>
+      {confirmElement}
     </Modal>
   );
 }

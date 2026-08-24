@@ -10,6 +10,7 @@ import { formatCents, parseAmount, parseNumber } from "@/lib/money";
 import { computePersonTotals, type AssignMode, type ConvertItem } from "@/lib/receipt-convert";
 import type { GroupDto, ScanDetailDto, ScanEditInput, ScanItemDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
+import { ConfirmModal } from "./ConfirmModal";
 import { useT } from "./LocaleProvider";
 import { ScanAssignModal } from "./ScanAssignModal";
 
@@ -95,6 +96,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
   const [totalStr, setTotalStr] = useState(centsToStr(scan.totalCents));
   const [payerAliasId, setPayerAliasId] = useState(myAliasId ?? aliases[0]?.id ?? "");
   const [assignItemKey, setAssignItemKey] = useState<string | null>(null);
+  const [removeItemKey, setRemoveItemKey] = useState<string | null>(null);
   const [busy, setBusy] = useState<"save" | "convert" | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -224,6 +226,8 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
   };
 
   const assignItem = items.find((it) => it.key === assignItemKey) ?? null;
+  const removeItem = items.find((it) => it.key === removeItemKey) ?? null;
+  const removeItemCents = removeItem ? parseAmount(removeItem.totalStr) : null;
   const isConverted = scan.expenseId !== null;
 
   const summaryByAlias = new Map(
@@ -353,7 +357,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
         <div className="card">
           <div className="hidden gap-2 border-b border-gray-100 px-4 py-2 sm:flex">
             <span className="label !mb-0 min-w-40 flex-1">{t("scanReview.item")}</span>
-            <span className="label !mb-0 w-14 shrink-0">{t("scanReview.qty")}</span>
+            <span className="label !mb-0 w-14 shrink-0 text-right">{t("scanReview.qty")}</span>
             <span className="label !mb-0 w-24 shrink-0 text-right">{t("scanReview.price")}</span>
             <span className="label !mb-0 w-44 shrink-0">{t("scanReview.whoPays")}</span>
             <span className="w-6 shrink-0" />
@@ -383,8 +387,9 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                       </p>
                     )}
                   </div>
-                  {/* Phone layout via order utilities: name + remove on the first
-                      line, qty + price on the second, assignment full-width below. */}
+                  {/* Phone layout via order utilities: name on the first line,
+                      qty + sign + price + remove on the second, assignment
+                      full-width below. */}
                   <div className="w-14 shrink-0 max-sm:order-1">
                     <input
                       className="input !px-2 !py-1.5 text-right"
@@ -394,19 +399,23 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                       onChange={(e) => updateItem(it.key, { qtyStr: e.target.value })}
                     />
                   </div>
-                  <div className="relative w-24 shrink-0 max-sm:order-1 max-sm:flex-1">
+                  <div className="flex w-24 shrink-0 max-sm:order-1 max-sm:flex-1">
                     <button
                       type="button"
                       tabIndex={-1}
                       aria-label={t("scanReview.toggleNegAria")}
                       title={t("scanReview.toggleNegTitle")}
-                      className="absolute top-1/2 left-1 -translate-y-1/2 cursor-pointer rounded px-1.5 py-1 text-sm leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                      className={`cursor-pointer rounded-l-lg border border-r-0 border-gray-300 px-2 text-sm font-medium transition-colors ${
+                        itemCents !== null && itemCents < 0
+                          ? "bg-red-50 text-red-600 hover:bg-red-100"
+                          : "bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                      }`}
                       onClick={() => updateItem(it.key, { totalStr: toggleSign(it.totalStr) })}
                     >
                       ±
                     </button>
                     <input
-                      className={`input !py-1.5 !pl-7 text-right ${itemCents !== null && itemCents < 0 ? "amount-neg" : ""}`}
+                      className={`input min-w-0 flex-1 !rounded-l-none !py-1.5 text-right ${itemCents !== null && itemCents < 0 ? "amount-neg" : ""}`}
                       placeholder="0.00"
                       aria-label={t("scanReview.priceAria")}
                       inputMode="decimal"
@@ -452,9 +461,9 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                   </div>
                   <button
                     type="button"
-                    className="cursor-pointer rounded-md px-1.5 py-1 text-lg leading-none text-gray-300 hover:bg-red-50 hover:text-red-500"
+                    className="w-6 shrink-0 cursor-pointer rounded-md py-1 text-center text-lg leading-none text-red-400 hover:bg-red-50 hover:text-red-600 max-sm:order-1"
                     aria-label={t("scanReview.removeItemAria")}
-                    onClick={() => setItems((list) => list.filter((x) => x.key !== it.key))}
+                    onClick={() => setRemoveItemKey(it.key)}
                   >
                     &times;
                   </button>
@@ -575,6 +584,18 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
             setAssignItemKey(null);
           }}
           onClose={() => setAssignItemKey(null)}
+        />
+      )}
+
+      {removeItem && (
+        <ConfirmModal
+          message={t("scanReview.removeItemConfirm", {
+            name: removeItem.name.trim() || t("scanReview.itemFallback"),
+            price: removeItemCents !== null ? ` (${formatCents(removeItemCents, currency)})` : "",
+          })}
+          confirmLabel={t("common.remove")}
+          onConfirm={() => setItems((list) => list.filter((x) => x.key !== removeItem.key))}
+          onClose={() => setRemoveItemKey(null)}
         />
       )}
     </div>

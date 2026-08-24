@@ -8,6 +8,7 @@ import { countWord, type TKey } from "@/lib/i18n";
 import { formatCents } from "@/lib/money";
 import type { ExpenseDto, GroupDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
+import { useConfirm } from "./ConfirmModal";
 import { useLocale, useT } from "./LocaleProvider";
 import { Modal } from "./Modal";
 
@@ -45,17 +46,24 @@ export function ExpenseDetailModal({
     }
   };
 
-  const remove = async () => {
+  const { ask, confirmElement } = useConfirm();
+  const remove = () => {
+    const amount = formatCents(expense.amountCents, expense.currency);
     const message = isSettlement
-      ? t("expenses.deletePaymentConfirm")
-      : t("expenses.deleteExpenseConfirm");
-    if (!window.confirm(message)) return;
-    setBusy(true);
-    setError(null);
-    const result = await deleteExpense(expense.id);
-    setBusy(false);
-    if (result.ok) onClose();
-    else setError(result.error);
+      ? t("expenses.deletePaymentConfirm", {
+          from: name(expense.payers[0]?.aliasId ?? ""),
+          to: name(expense.shares[0]?.aliasId ?? ""),
+          amount,
+        })
+      : t("expenses.deleteExpenseConfirm", { description: expense.description, amount });
+    ask(message, async () => {
+      setBusy(true);
+      setError(null);
+      const result = await deleteExpense(expense.id);
+      setBusy(false);
+      if (result.ok) onClose();
+      else setError(result.error);
+    });
   };
 
   const personRow = (aliasId: string, amount: string, hint?: string | null) => (
@@ -149,7 +157,7 @@ export function ExpenseDetailModal({
         {error && <p className="text-sm font-medium text-red-600">{error}</p>}
 
         <div className="flex items-center justify-between border-t border-gray-100 pt-4">
-          <button type="button" className="btn btn-danger" onClick={() => void remove()} disabled={busy}>
+          <button type="button" className="btn btn-danger" onClick={remove} disabled={busy}>
             {busy ? t("common.deleting") : t("common.delete")}
           </button>
           <div className="flex gap-2">
@@ -162,6 +170,7 @@ export function ExpenseDetailModal({
           </div>
         </div>
       </div>
+      {confirmElement}
     </Modal>
   );
 }

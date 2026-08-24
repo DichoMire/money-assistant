@@ -29,7 +29,7 @@ body {
 }
 
 .btn {
-  @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2 text-center text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
 }
 
 .btn-primary {
@@ -99,6 +99,15 @@ input[type="date"].input::-webkit-date-and-time-value {
   .btn,
   .input {
     touch-action: manipulation;
+  }
+  /* The 1rem font above makes text inputs/selects taller (text-sm's 1.25/0.875
+     line-height ratio now yields ~1.43rem), so the date input's hardcoded
+     0.875rem-era metrics leave it a few px shorter than its neighbors. */
+  input[type="date"].input {
+    min-height: calc(1.25rem / 0.875 + 1rem + 2px);
+  }
+  input[type="date"].input::-webkit-date-and-time-value {
+    line-height: calc(1.25rem / 0.875);
   }
 }
 

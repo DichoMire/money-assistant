@@ -6,7 +6,7 @@ import { LanguageToggle } from "./LanguageToggle";
 export async function AppHeader({ user }: { user: { name?: string | null; email?: string | null } }) {
   const t = await getT();
   return (
-    <header className="border-b border-gray-200 bg-white">
+    <header className="border-b border-gray-200 bg-white pt-[env(safe-area-inset-top)]">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
         <Link href="/" className="flex items-center gap-2 text-lg font-bold text-gray-800">
           <span
