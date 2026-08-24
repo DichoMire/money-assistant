@@ -122,6 +122,19 @@ export function ExpenseList({
                 ) : (
                   <span className="block text-xs font-semibold text-red-500">no rate</span>
                 ))}
+              {/* Phones lack the room for the separate impact column, so the
+                  personal net goes under the amount instead — stacked, so it
+                  doesn't squeeze the description. */}
+              {impact !== null && impact !== 0 && (
+                <span className={`block sm:hidden ${iOwe ? "amount-neg" : "amount-pos"}`}>
+                  <span className="block text-[11px] font-medium">
+                    {iOwe ? "you owe" : "you lent"}
+                  </span>
+                  <span className="block text-xs font-bold">
+                    {formatCents(Math.abs(impact), e.currency)}
+                  </span>
+                </span>
+              )}
             </span>
             <span
               role="button"

@@ -110,7 +110,7 @@ export function ExpenseDetailModal({
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <section className="rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
             <p className="label">Paid by</p>
             <ul>

@@ -108,7 +108,9 @@ export function GroupView({ data }: { data: GroupDto }) {
           </button>
         </div>
       ) : (
-        <div className="grid gap-5 lg:grid-cols-3">
+        // grid-cols-1 keeps the stacked track at container width — an implicit
+        // auto track sizes to its content and overflows narrow screens.
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <ExpenseList
               data={data}
