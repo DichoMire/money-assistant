@@ -1,6 +1,6 @@
 # RFC 04 — Receipt Scanning: Paid Models, Bulgarian Eras, Eval Harness, Unit Splits, Metering & Retention
 
-> **Status update (2026-08-24):** stage 1 was implemented (paid model defaults) and **reverted the same day by owner decision** — the free-model ladder is back and this RFC is fully outstanding. Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
+> **Status update (2026-08-26): code COMPLETE, model switch pending (owner).** All 7 stages implemented in the release-prep batch; per owner decision the shipped DEFAULTS stay on free models — the paid/ZDR switch is the env-only recipe in `.env.example` + [OWNER-CHECKLIST.md §2](../OWNER-CHECKLIST.md) (with fixture collection for the eval baseline). BGN-era receipts now normalize to EUR at the fixed rate (post-BGN-removal adaptation). Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
 
 > **Status:** Proposed · **Priority: P1 — blocks real-user launch and is the monetization foundation**
 > **Audience:** a future LLM implementer with full repo access. Read

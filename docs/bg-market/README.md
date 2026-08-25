@@ -11,12 +11,17 @@
 > doc** (the evidence) and an **RFC** (an implementation plan written for a future LLM
 > implementer). Nothing in this package changes code.
 >
-> **Implementation status:** a first "personal project" batch shipped on 2026-08-24 —
-> the P0 euro fix, locale-correct money parsing/formatting, DB transactions, PWA
-> installability, and first-run/engagement polish (a paid-LLM switch was made and then
-> reverted by owner decision — receipt scanning stays on free models). See
-> [IMPLEMENTATION-LOG.md](IMPLEMENTATION-LOG.md) for exactly what was built, deviations
-> from the RFCs, and what remains; affected RFCs carry status stamps.
+> **Implementation status (2026-08-26):** two batches shipped. The 2026-08-24
+> "personal project" batch covered the P0 euro fix, locale formatting, transactions,
+> PWA installability and first-run polish. The 2026-08-26 **release-prep batch**
+> implemented the commercial scope end-to-end: RFCs 01/02/03/06/08 complete, RFC 04
+> complete in code (paid-model switch = one env flip, owner's call), RFC 07 complete
+> minus push, RFC 09 stages 1–2 (metering/entitlements, no billing), RFC 10 code
+> stages (landing/SEO/blog/attribution), RFC 11 all but pagination. Deferred by owner
+> decision: service worker + dark mode (RFC 05 st. 3–7), Paddle checkout (RFC 09
+> st. 3–5). See [IMPLEMENTATION-LOG.md](IMPLEMENTATION-LOG.md) for details and
+> deviations, and **[OWNER-CHECKLIST.md](OWNER-CHECKLIST.md)** for everything that
+> now needs the owner (accounts, DNS, on-device tests, lawyer, launch playbook).
 
 ---
 

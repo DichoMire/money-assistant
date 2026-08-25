@@ -1,6 +1,6 @@
 # RFC 05 — Installable PWA, Offline Shell & Webview-Proof Invites
 
-> **Status update (2026-08-24):** manifest + icon set + apple metadata implemented (installable); service worker, install prompt, webview escape hint and dark mode outstanding. Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
+> **Status update (2026-08-26):** stage 1 (manifest/icons, 2026-08-24; icons regenerated with the € mark) and **stage 2 (webview escape hint on /login + pre-auth /join)** implemented. Stages 3–7 (service worker/offline, install prompt, push foundation, screenshots, dark mode) **deferred by owner decision** in the release-prep planning round. Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
 
 > Part of the [Bulgarian market improvement guide](../README.md).
 > **Status:** Proposed · **Priority: P2** — after correctness ([RFC 01](../01-euro-transition/rfc.md))

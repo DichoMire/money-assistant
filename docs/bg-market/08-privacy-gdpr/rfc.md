@@ -1,5 +1,7 @@
 # RFC 08 — Privacy & GDPR: Account Deletion, Data Export, Policies, Minimization
 
+> **Status update (2026-08-26): COMPLETE** — all 6 stages (minimization + backfill, deletion with resolution UX + FK RESTRICT, export, retention machinery with RFC 04, policy pages as full bg+en DRAFTS + consent surfaces, ROPA). The policy text awaits one lawyer review before any marketing push ([OWNER-CHECKLIST.md §3](../OWNER-CHECKLIST.md)); the email-keyed tombstone sweep became actor-name-only because migration 0009 scrubbed emails from details entirely. Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
+
 > Part of the [Bulgarian market improvement guide](../README.md).
 > **Status:** Proposed · **Priority: P1 — legally required before any marketing push**
 > **Audience:** a future LLM implementer with full repo access. Read

@@ -1,4 +1,12 @@
-# Implementation Log — Personal-Project Batch (2026-08-24)
+# Implementation Log
+
+> Two batches so far: the **personal-project batch** (2026-08-24, below) and
+> the **release-prep batch** (2026-08-26, [appendix at the bottom](#release-prep-batch-2026-08-26))
+> which implemented the commercial scope of RFCs 03, 04, 06, 07, 08, 10 and
+> the rest of 11, plus RFC 09's metering/entitlements foundation.
+> What only the owner can do next lives in [OWNER-CHECKLIST.md](OWNER-CHECKLIST.md).
+
+# Personal-Project Batch (2026-08-24)
 
 > **What this is:** the record of the first implementation pass over the
 > [improvement guide](README.md), scoped by the owner to the "personal project used with
@@ -266,3 +274,117 @@ Verification: `npm run test:math` ✅ · `npm run test:receipt` ✅ ·
 `npm run test:receipt-db` ✅ · `npx tsx scripts/db-smoke.ts` ✅ (fresh PGlite,
 migrations 0000→0007) · `npm run lint` ✅ · `npx tsc --noEmit` ✅ ·
 `npm run build` ✅.
+
+---
+
+# Release-Prep Batch (2026-08-26)
+
+> One autonomous implementation run (branch `release-prep`, commits
+> `dd1f1be`…) taking the app from "polished hobby" to "launchable product"
+> per the owner's planning decisions: **paid LLM env-ready but free defaults
+> kept · full email + magic links (dormant until Resend env) · metering +
+> entitlements but no Paddle code · landing/SEO/legal drafts in · service
+> worker + dark mode out.** Verification at every stage and at the end:
+> `npm test` (8 suites incl. 4 new), `npm run lint`, `npx tsc --noEmit`,
+> `npm run build` — all green. Migrations 0008–0013 (see OWNER-CHECKLIST §1
+> for the Neon apply procedure — two carry data backfills).
+
+## What shipped, per RFC
+
+- **RFC 01 — complete.** Stage 6 remainder: FX gap repair (missed cron
+  weekdays fetched via the range endpoint, TARGET-holiday-safe) and the
+  `approxRate` flag (pre-history conversions render an amber ≈ chip).
+- **RFC 02 — complete.** Stage 3: `details.changes` now stored as
+  `{key, params}` fragments rendered in the viewer's locale (legacy strings
+  verbatim; `SPLIT_METHOD_LABELS` deleted; `actions.ts` no longer formats
+  money/dates into stored data). Stage 5: localized `<title>`, deliberate
+  bilingual toggle aria-label, locale-aware `0,00` placeholders.
+- **RFC 03 — complete (code).** `payment_profiles` (IBAN mod-97 + holder
+  name required together, blink E.164, Revolut tag), server-enforced
+  shared-group visibility, settings editor, how-to-pay card in the settle
+  modal (copy-first SEPA fields, blink steps + free-≤€150 badge, revolut.me,
+  on-demand EPC069-12 QR at level M with 331-byte note-only truncation),
+  settlement method tag + chip, creditor-side request-payment and
+  balance-summary shares (`share-text.ts`). `scripts/epc.test.ts`. The
+  pre-ship empirical checklist is the owner's (checklist §6).
+- **RFC 04 — complete (code); model switch is the owner's env flip.**
+  Env surface (`RECEIPT_API_URL`/`RECEIPT_API_KEY`/`OPENROUTER_ZDR`,
+  EU-endpoint recipe, structured outputs for non-`:free` models, cost +
+  latency capture), era-aware prompt/validator (dual-total cross-check at
+  1.95583 ±1 стотинка, VAT groups А–Г with raw-text fallback, line typing,
+  and — post-BGN-removal — BGN receipts normalized to EUR at the fixed rate),
+  eval harness (`scripts/receipt-eval.ts` + gitignored fixtures + manual CI
+  job), metering (see RFC 09), image retention (keep-photo checkbox,
+  delete-on-convert, 30-day draft sweep, backfill script), unit-level "по
+  бройки" splitting with steppers, one-shot retry-at-higher-res, queue
+  triggers documented in code.
+- **RFC 06 — complete except things needing devices/email.** Invite QR
+  (client-rendered), link regeneration, TTL 30d; pre-auth join preview with
+  OG tags via a token-nonconfirming public loader; login overhaul (trust
+  strip, consent line, € brand mark shared via `BrandMark`); settings screen
+  grew profile editing (+ payment/notification/privacy sections); **magic
+  links** via a minimal custom Auth.js adapter (single-use tokens, JWT
+  sessions kept, no accounts table, 3 links/hour throttle, branded
+  check-email page) — registered only when email env exists; the `ensureUser`
+  COALESCE landmine fixed.
+- **RFC 07 — complete except push (out of scope with the service worker).**
+  `notifications` table + `notifyUsers` at every relevant call site, header
+  bell + mark-read panel, `users.locale` capture, digest-by-default email
+  policy implemented structurally (two immediate types only), Resend via
+  plain REST (documented deviation from react-email/SDK), per-user daily
+  digest with 14-day window + 90/day cap + idempotent `emailedAt`, RFC 8058
+  one-click unsubscribe, prefs card, „Напомни" with server-recomputed debt +
+  7-day per-debtor limit. `scripts/notify.test.ts` (mocked Resend).
+- **RFC 08 — complete.** Email minimization (writers + jsonb backfill),
+  account deletion with detach-to-virtual semantics / conflicted-group
+  resolution UX / ownership transfer / tombstoned actor names /
+  `groups.userId` FK → RESTRICT, JSON export with 10-min throttle, `/privacy`
+  + `/terms` full bg+en drafts (lawyer review pending — checklist §3),
+  consent surfaces (login line, one-time banner, scan-page vendor caption +
+  first-use dialog), `docs/ROPA.md`. `scripts/account.test.ts` proves other
+  members' balances stay byte-identical through a deletion.
+- **RFC 09 — stages 1–2 only (owner decision).** `scan_usage` Sofia-month
+  metering (check-before-LLM, increment-after-success, duplicates free,
+  fails open), `users.plan`/`plan_expires_at` + `entitlements.ts` with the
+  FREE-FOREVER constraint comment and 72h fail-open grace, quota UX behind
+  `SCAN_QUOTA_ENFORCED` (off). No Paddle code — §7 of the checklist.
+- **RFC 10 — code stages complete.** Bulgarian-always landing at `/` for
+  logged-out visitors + `/en` twin, OG cards (generated, script included),
+  hreflang/robots/sitemap/noindex-login, FAQPage JSON-LD, blog scaffold with
+  the six-article queue documented, `?ref=` first-touch attribution into
+  `users.signup_ref`, share payloads. Articles/playbook/ads are the owner's.
+- **RFC 11 — all workstreams except pagination (P3).** (a) transactions now
+  cover receipt paths/joinGroup/createGroup; set-based `mergeAliasReferences`
+  and `deleteGroup`. (b) in-Postgres sliding-window rate limits on the four
+  hot actions + write ceiling. (c) Sentry via envelope API (no SDK —
+  documented deviation), `CRON_PING_URL` dead-man's switch, cookieless
+  Vercel Analytics. (d) CI (8 suites, secret-free) + Dependabot. (e) HSTS,
+  `camera=(self)`, nonce CSP report-only with `CSP_ENFORCE` flip, cron
+  fail-closed. (f) `ReceiptImageStore` abstraction (bytea adapter). (g) fx
+  query bounded + skipped for fixed-leg groups, Map joins, 8 indexes.
+  (h) nightly backup workflow + restore runbook. Deferred: (g5) expense
+  pagination (P3 — revisit at ~1–2K-expense groups).
+
+## Notable cross-cutting decisions (beyond the RFC texts)
+
+- **BGN-era receipts** are normalized to EUR at 1.95583 during validation
+  (the RFCs predate the owner's full BGN removal; this keeps pre-2026
+  receipts scannable and consistent with migration 0007's philosophy).
+- **Brand glyph $ → €** across header/login/join/PWA icons/OG cards
+  (RFC 06's "wrong-currency signal"); one-place revert via `BrandMark` +
+  `scripts/generate-brand-assets.ps1`.
+- **No new SDKs**: Resend, Sentry and Paddle-someday all speak plain
+  `fetch`, matching the repo's OpenRouter/Frankfurter pattern. New runtime
+  deps this run: `qrcode` (lazy-loaded), `@vercel/analytics`.
+- `db-smoke` now runs against a throwaway `.pglite-smoke/` dir (`PGLITE_DIR`)
+  — the incident class that once deleted local dev data is closed.
+- Landing copy lives in a locally-typed dict inside `LandingPage.tsx` rather
+  than ~40 `landing.*` app-dictionary keys (same bg-completeness guarantee).
+
+## New test suites (all in CI)
+
+`reliability` (tx rollback, rate limiter incl. sliding weight, FX gap repair
+with mocked fetch, approx flag) · `account` (deletion engine end-to-end) ·
+`epc` (EPC payload byte-exactness, IBAN fixtures, share text) · `notify`
+(recipient computation, email guard rails, digest idempotency) — plus era/
+units/VAT coverage added to `receipt`, and `test`/`typecheck` npm scripts.

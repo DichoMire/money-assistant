@@ -1,6 +1,6 @@
 # RFC 11 — Reliability, Operations & Scale: Transactions, Rate Limits, Observability, CI, Hardening
 
-> **Status update (2026-08-24):** workstream (a) implemented — withTransaction over the Neon WebSocket driver (PGlite parity) wrapping saveExpense, saveSettlement, deleteExpense, deleteGroup, attachAlias/merge; receipt-action paths and all other workstreams outstanding. Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
+> **Status update (2026-08-26): COMPLETE except (g5) pagination (P3).** (a) full coverage + set-based merge/teardown; (b) rate limits; (c) Sentry-via-envelope-API (no SDK — documented deviation) + cron ping + Vercel Analytics; (d) CI + Dependabot; (e) HSTS/CSP-report-only(+`CSP_ENFORCE` flip)/camera=(self)/cron fail-closed; (f) ReceiptImageStore (bytea adapter, R2 swap-point documented); (g1–4) fx bounding + Map joins + indexes; (h) backup workflow + restore runbook. Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
 
 > **Status:** Proposed · **Priority: staged — P1 (launch blockers before charging money):
 > transactional integrity (a), rate limiting (b), error tracking (c1);

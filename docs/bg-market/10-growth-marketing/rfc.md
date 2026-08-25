@@ -1,5 +1,7 @@
 # RFC 10 — Growth & Marketing: Landing Page, SEO Surface, Viral Sharing & Launch Playbook
 
+> **Status update (2026-08-26): code stages (1, 2, 3-scaffold) COMPLETE** — bg-always landing at `/` + `/en`, OG cards, hreflang/robots/sitemap, FAQ JSON-LD, blog registry+SSG pages, share payloads, `?ref=` → `users.signup_ref`. The playbook stages (SERP verification, articles, community posts, ads) and stage 6 (analytics events) are the owner's — [OWNER-CHECKLIST.md §8](../OWNER-CHECKLIST.md). Landing copy lives in a locally-typed dict (documented deviation). Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
+
 > Part of the [Bulgarian market improvement guide](../README.md).
 > **Status:** Proposed · **Priority: P2 — after the correctness/localization/trust foundations
 > (RFC 01 euro fix, RFC 02 formatting, RFC 08 privacy pages), but sequenced against the seasonal

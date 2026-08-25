@@ -1,5 +1,7 @@
 # RFC 03 — Settle-Up Payment Helpers: Bank Card, blink Instructions, Revolut Links, EPC QR
 
+> **Status update (2026-08-26): code COMPLETE** (all 6 stages; virtual-member details and per-group visibility deferred as designed). The §4 pre-ship empirical checklist (Revolut QR scan, revolut.me params, Viber render, VoP test) is the owner's — [OWNER-CHECKLIST.md §6](../OWNER-CHECKLIST.md). Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
+
 > **Status:** Proposed · **Priority: P1 — the most visible "made for Bulgaria" feature**
 > **Audience:** a future LLM implementer with full repo access. Read
 > [research.md](research.md) and [audit §1.5–1.6](../00-current-state-audit.md) first.

@@ -1,6 +1,6 @@
 # RFC 02 — Localization Correctness: Locale-Aware Money, Robust Amount Parsing, Structured Activity Log, Locale Auto-Detection
 
-> **Status update (2026-08-24):** stages 1 (locale-aware formatCents), 2 (parseAmount) and 4 (Accept-Language) implemented; stages 3 (structured audit fragments) and 5 outstanding. Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
+> **Status update (2026-08-26): COMPLETE.** Stages 1/2/4 (2026-08-24); stages 3 (structured `{key, params}` audit fragments with legacy fallback) and 5 (localized title, deliberate aria-label, locale placeholders) in the release-prep batch. Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
 
 > **Status:** Proposed · **Priority: P1 — high, cheap, market-critical**
 > (numbers appear on every screen of a money app; wrong number formatting undermines the

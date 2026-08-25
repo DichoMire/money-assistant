@@ -1,5 +1,7 @@
 # RFC 09 — Freemium Monetization: Entitlements, Scan Metering & Paddle Billing
 
+> **Status update (2026-08-26): stages 1–2 COMPLETE by owner decision** — scan_usage metering (recording), plan columns + `entitlements.ts` (FREE-FOREVER comment, 72h grace), quota UX behind `SCAN_QUOTA_ENFORCED` (off). Stages 3–5 (Paddle checkout/webhooks/launch) deliberately NOT built; the operational path is [OWNER-CHECKLIST.md §7](../OWNER-CHECKLIST.md). Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
+
 > Part of the [Bulgarian market improvement guide](../README.md).
 > **Status:** Proposed · **Priority: P2 — build after the P0/P1 correctness & trust work.**
 > The metering foundation (Stage 1, scan counting) is the exception: it should land early,

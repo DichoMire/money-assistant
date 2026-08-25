@@ -1,6 +1,6 @@
 # RFC 07 — Notifications & Engagement: In-App Feed, Digest-First Email, User-Initiated Reminders
 
-> **Status update (2026-08-24):** stage 1 subset implemented — group_reads watermark + dashboard new-activity dot (no bell, no email). Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
+> **Status update (2026-08-26): stages 1–6 COMPLETE** (notifications table + bell + locale capture + Resend email layer + digest + unsubscribe + напомни; the email side is dormant until the owner's DNS/Resend setup — [OWNER-CHECKLIST.md §4](../OWNER-CHECKLIST.md)). Stage 7 (push) deferred with RFC 05's service worker by owner decision. member.left/removed/alias.attached notification types deliberately omitted (activity log covers them). Details: [IMPLEMENTATION-LOG.md](../IMPLEMENTATION-LOG.md).
 
 > **Status:** Proposed · **Priority: P2 — engagement layer, after core correctness (RFC 01) and localization (RFC 02)**
 > **Audience:** a future LLM implementer with full repo access. Read [research.md](research.md),
