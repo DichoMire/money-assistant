@@ -1,8 +1,9 @@
 import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { getDb } from "@/db";
-import { receiptScanImages, receiptScans } from "@/db/schema";
+import { receiptScans } from "@/db/schema";
 import { getMembership } from "@/lib/group-data";
+import { getReceiptImageStore } from "@/lib/receipt-image-store";
 
 export const dynamic = "force-dynamic";
 
@@ -28,11 +29,7 @@ export async function GET(
   const membership = await getMembership(db, scan.groupId, session.user.id);
   if (!membership) return new Response("Not found", { status: 404 });
 
-  const imageRows = await db
-    .select()
-    .from(receiptScanImages)
-    .where(eq(receiptScanImages.scanId, scanId));
-  const image = imageRows[0];
+  const image = await getReceiptImageStore().get(db, scanId);
   if (!image) return new Response("Not found", { status: 404 });
 
   return new Response(Buffer.from(image.data), {

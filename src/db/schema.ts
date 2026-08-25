@@ -65,6 +65,8 @@ export const users = pgTable("users", {
     .default(sql`gen_random_uuid()`),
   /** Auth.js email-provider expectation; Google rows verified at entry. */
   emailVerified: timestamp("email_verified"),
+  /** First-touch acquisition channel (?ref= slug), written once (RFC 10). */
+  signupRef: text("signup_ref"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

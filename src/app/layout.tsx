@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { LocaleProvider } from "@/components/LocaleProvider";
 import { getLocale, getT } from "@/lib/i18n-server";
+import { appBaseUrl } from "@/lib/invites";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -25,7 +27,11 @@ export const viewport: Viewport = {
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getT();
   return {
-    title: t("app.title"),
+    metadataBase: new URL(appBaseUrl()),
+    title: {
+      default: t("app.title"),
+      template: "%s · Money Assistant",
+    },
     description: t("app.tagline"),
     icons: {
       apple: "/apple-touch-icon.png",
@@ -50,6 +56,9 @@ export default async function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <LocaleProvider locale={locale}>{children}</LocaleProvider>
+        {/* Cookieless (request-hash, discarded after 24h) — keeps the
+            no-consent-banner status. No custom events carry personal data. */}
+        <Analytics />
       </body>
     </html>
   );

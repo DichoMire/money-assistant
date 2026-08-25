@@ -1,15 +1,64 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
+import { eq, isNull, and } from "drizzle-orm";
 import { auth } from "@/auth";
+import { getDb } from "@/db";
+import { users } from "@/db/schema";
 import { AppHeader } from "@/components/AppHeader";
+import { LandingPage } from "@/components/LandingPage";
 import { NewGroupForm } from "@/components/NewGroupForm";
 import { loadGroupSummaries } from "@/lib/group-data";
 import { countWord } from "@/lib/i18n";
 import { getT } from "@/lib/i18n-server";
 
+/**
+ * SEO metadata for the (logged-out) Bulgarian landing at "/". Keyword-bearing
+ * title (the brand alone is generic); Bulgarian is x-default on purpose —
+ * this is a bg-first product targeting an empty Bulgarian SERP (RFC 10).
+ */
+export const metadata = {
+  title: "Money Assistant — приложение за общи разходи и разделяне на сметки",
+  description:
+    "Групови разходи за почивки, квартири и излизания. Неограничени записи, безплатно сканиране на бонове, без реклами — работи в браузъра, без инсталация.",
+  alternates: {
+    canonical: "/",
+    languages: { bg: "/", en: "/en", "x-default": "/" },
+  },
+  openGraph: {
+    type: "website",
+    siteName: "Money Assistant",
+    locale: "bg_BG",
+    alternateLocale: "en_US",
+    title: "Money Assistant — приложение за общи разходи",
+    description: "Неограничени разходи. Безплатно сканиране на бонове. Без реклами.",
+    images: [{ url: "/og/card-bg.png", width: 1200, height: 630 }],
+  },
+  twitter: { card: "summary_large_image" as const },
+};
+
+/** One-time channel attribution: the ?ref= cookie set on the landing becomes
+ *  users.signup_ref on the first authenticated dashboard render (first-touch,
+ *  never overwritten). Deliberately not in auth.ts — this visit is
+ *  attribution-equivalent to signup. */
+async function captureSignupRef(userId: string) {
+  try {
+    const ref = (await cookies()).get("ref")?.value;
+    if (!ref || !/^[a-z0-9-]{1,32}$/.test(ref)) return;
+    const db = await getDb();
+    await db
+      .update(users)
+      .set({ signupRef: ref })
+      .where(and(eq(users.id, userId), isNull(users.signupRef)));
+  } catch {}
+}
+
 export default async function DashboardPage() {
   const session = await auth();
-  if (!session?.user?.id) redirect("/login");
+  // The root URL is the marketing surface for logged-out visitors — always
+  // Bulgarian (RFC 10's SEO strategy; /en is the English twin). Logged-in
+  // behavior is unchanged: the dashboard.
+  if (!session?.user?.id) return <LandingPage locale="bg" />;
+  await captureSignupRef(session.user.id);
   const groups = await loadGroupSummaries(session.user.id);
   const t = await getT();
 

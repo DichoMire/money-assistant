@@ -5,6 +5,10 @@ import { LanguageToggle } from "@/components/LanguageToggle";
 import { OpenInBrowserHint } from "@/components/OpenInBrowserHint";
 import { getT } from "@/lib/i18n-server";
 
+// The landing page is the canonical public face; the login card is a thin
+// duplicate of its CTA (RFC 10).
+export const metadata = { robots: { index: false } };
+
 export default async function LoginPage({
   searchParams,
 }: {

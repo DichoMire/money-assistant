@@ -1,0 +1,37 @@
+name: backup
+# Nightly logical backup of the hosted database (RFC 11 §h). Requires the
+# DATABASE_URL repo secret (a read-only role if practical). Image bytes are
+# excluded on purpose: they are slated for short retention (RFC 04/08) and
+# would bloat every dump. Restore procedure: docs/ops/restore-runbook.md.
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.repository_owner != '' }}
+    steps:
+      - name: Install postgres client 17
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17 || sudo apt-get install -y -qq postgresql-client
+      - name: Dump
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL secret not set — skipping."
+            exit 0
+          fi
+          pg_dump "$DATABASE_URL" --format=custom \
+            --exclude-table-data=receipt_scan_images \
+            -f backup.pgdump
+          ls -la backup.pgdump
+      - uses: actions/upload-artifact@v4
+        if: ${{ hashFiles('backup.pgdump') != '' }}
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: backup.pgdump
+          retention-days: 90

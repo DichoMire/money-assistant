@@ -48,8 +48,11 @@ export function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     {
-      // API routes serve no HTML; static assets need no nonce.
-      source: "/((?!api|_next/static|_next/image|favicon.ico|manifest.webmanifest|icon-|apple-touch-icon).*)",
+      // API routes serve no HTML; static assets need no nonce. The static
+      // marketing pages (/en, /blog, sitemap/robots, og images) are excluded
+      // too — a nonce would force them dynamic for no security gain.
+      source:
+        "/((?!api|_next/static|_next/image|favicon.ico|manifest.webmanifest|icon-|apple-touch-icon|og/|en$|blog|sitemap.xml|robots.txt).*)",
       missing: [
         { type: "header", key: "next-router-prefetch" },
         { type: "header", key: "purpose", value: "prefetch" },

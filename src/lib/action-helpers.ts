@@ -4,6 +4,7 @@ import type { Db } from "@/db";
 import { activityLog, notifications } from "@/db/schema";
 import { sendNotificationEmail } from "./email";
 import { getMembership } from "./group-data";
+import { captureError } from "./monitoring";
 import { IMMEDIATE_EMAIL_TYPES } from "./notify";
 import { enT, type TFunc } from "./i18n";
 import { getT } from "./i18n-server";
@@ -33,12 +34,24 @@ export async function requireRole(db: Db, groupId: string, userId: string, minRo
   return membership;
 }
 
+/**
+ * The single choke-point every server-action exception passes through.
+ * Expected domain errors carry a localized message (Error instances thrown by
+ * our own guards); anything else is an unexpected failure and gets reported.
+ */
 export async function fail(error: unknown): Promise<{ ok: false; error: string }> {
   const t: TFunc = await getT().catch(() => enT);
-  return {
-    ok: false,
-    error: error instanceof Error ? error.message : t("errors.somethingWentWrong"),
-  };
+  if (!(error instanceof Error)) {
+    captureError(error, { source: "server-action" });
+    return { ok: false, error: t("errors.somethingWentWrong") };
+  }
+  // Heuristic: our own guards throw messages meant for users; driver/library
+  // failures (constraint violations, network errors) deserve the operator's
+  // attention too — report anything that looks like an infrastructure error.
+  if (/violat|constraint|connect|timeout|ECONN|fetch failed/i.test(error.message)) {
+    captureError(error, { source: "server-action" });
+  }
+  return { ok: false, error: error.message };
 }
 
 export function revalidateGroup(groupId: string) {

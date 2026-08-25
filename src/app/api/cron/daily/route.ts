@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { groupInvites, notifications, rateLimits, verificationTokens } from "@/db/schema";
 import { runDailyDigest } from "@/lib/email";
+import { captureError } from "@/lib/monitoring";
 import { refreshRates } from "@/lib/rates-fetch";
 
 export const dynamic = "force-dynamic";
@@ -68,6 +69,7 @@ export async function GET(request: Request) {
     return NextResponse.json(result);
   } catch (error) {
     console.error("[cron] daily run failed:", error);
+    captureError(error, { source: "cron-daily" });
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "Maintenance run failed" },
       { status: 500 }

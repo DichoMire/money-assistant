@@ -4,7 +4,8 @@ import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getDb, withTransaction, type Db } from "@/db";
-import { aliases, expenses, receiptItemShares, receiptItems, receiptScanImages, receiptScans } from "@/db/schema";
+import { aliases, expenses, receiptItemShares, receiptItems, receiptScans } from "@/db/schema";
+import { getReceiptImageStore } from "@/lib/receipt-image-store";
 import {
   fail,
   DATE_RE,
@@ -135,12 +136,9 @@ export async function parseReceipt(groupId: string, formData: FormData): Promise
         })
         .returning({ id: receiptScans.id });
       const id = scanRows[0].id;
-      await tx.insert(receiptScanImages).values({
-        scanId: id,
-        data: bytes,
-        contentType: file.type,
-        byteSize: bytes.byteLength,
-      });
+      // Under the bytea store this joins the transaction; an external store
+      // would put AFTER commit and compensate on failure (RFC 11 §f).
+      await getReceiptImageStore().put(tx, id, bytes, file.type);
       await tx.insert(receiptItems).values(
         receipt.items.map((item, position) => ({
           scanId: id,
@@ -440,7 +438,7 @@ export async function convertScan(
     // unless the user checked "keep the photo" — imageHash stays on the scan,
     // so re-uploading the same photo still dedupes to this scan.
     if (input.keepImage !== true) {
-      await db.delete(receiptScanImages).where(eq(receiptScanImages.scanId, scan.id));
+      await getReceiptImageStore().delete(db, scan.id);
     }
     await logActivity(db, scan.groupId, user, "receipt.converted", {
       merchant: input.merchant,
