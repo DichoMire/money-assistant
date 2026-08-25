@@ -15,6 +15,7 @@ export function isLocale(value: unknown): value is Locale {
 
 export const en = {
   // ---- app ----
+  "app.title": "Money Assistant — split group expenses",
   "app.tagline": "Track group expenses, split bills, and simplify who pays whom.",
 
   // ---- header ----
@@ -107,6 +108,7 @@ export const en = {
   "expenses.youLent": "you lent",
   "expenses.noRate": "no rate",
   "expenses.rateTooltip": "Converted with the rate from {date}",
+  "expenses.approxRateTooltip": "Approximate: the expense predates all stored rates, so the earliest available rate was used",
   "expenses.deleteExpenseConfirm": 'Delete "{description}" ({amount})?',
   "expenses.deletePaymentConfirm": "Delete the payment {from} → {to} ({amount})?",
 
@@ -233,6 +235,17 @@ export const en = {
   "activity.loading": "Loading…",
   "activity.none": "No activity yet.",
   "activity.showingLatest": "Showing the latest 200 events.",
+  "activity.nPeople": "{count} people",
+  "activity.change.description": "description “{from}” → “{to}”",
+  "activity.change.amount": "amount {from} → {to}",
+  "activity.change.date": "date {from} → {to}",
+  "activity.change.splitMethod": "split method {from} → {to}",
+  "activity.change.paidBy": "paid by {from} → {to}",
+  "activity.change.splitBetween": "split between {from} → {to}",
+  "activity.change.payerAmountsAdjusted": "payer amounts adjusted",
+  "activity.change.splitAmountsAdjusted": "split amounts adjusted",
+  "activity.change.payer": "payer {from} → {to}",
+  "activity.change.recipient": "recipient {from} → {to}",
   "activity.groupCreated": 'created the group "{name}"',
   "activity.groupRenamed": 'renamed the group from "{from}" to "{to}"',
   "activity.currencyChanged": "changed the currency from {from} to {to}",
@@ -469,6 +482,9 @@ export const en = {
   "balances.excludedMany": "{count} expenses could not be converted to {currency} and are NOT included in these balances.",
   "balances.excludedHint": "Update the exchange rates, or change those expenses' currency.",
   "errors.noRateForCurrency": "No exchange rate is available to convert {currency} to {groupCurrency} yet — update the rates first or pick another currency.",
+  "errors.tooManyRequests": "Too many requests — try again in {seconds} s.",
+  "errors.tooManyScans": "Scan limit reached for now — try again in {seconds} s.",
+  "errors.ratesRecentlyUpdated": "Rates were updated just recently — try again in a few minutes.",
 
   // ---- invite sharing ----
   "members.share": "Share",
@@ -490,6 +506,7 @@ export type TKey = keyof typeof en;
 
 const bg: Record<TKey, string> = {
   // ---- app ----
+  "app.title": "Money Assistant — разделяйте общи разходи",
   "app.tagline": "Следете общи разходи, разделяйте сметки и вижте лесно кой на кого дължи.",
 
   // ---- header ----
@@ -582,6 +599,7 @@ const bg: Record<TKey, string> = {
   "expenses.youLent": "дължат ви",
   "expenses.noRate": "няма курс",
   "expenses.rateTooltip": "Превалутирано с курса от {date}",
+  "expenses.approxRateTooltip": "Приблизително: разходът е отпреди всички съхранени курсове, затова е използван най-ранният наличен курс",
   "expenses.deleteExpenseConfirm": "Да се изтрие ли „{description}“ ({amount})?",
   "expenses.deletePaymentConfirm": "Да се изтрие ли плащането {from} → {to} ({amount})?",
 
@@ -708,6 +726,17 @@ const bg: Record<TKey, string> = {
   "activity.loading": "Зареждане…",
   "activity.none": "Още няма активност.",
   "activity.showingLatest": "Показани са последните 200 събития.",
+  "activity.nPeople": "{count} души",
+  "activity.change.description": "описание „{from}“ → „{to}“",
+  "activity.change.amount": "сума {from} → {to}",
+  "activity.change.date": "дата {from} → {to}",
+  "activity.change.splitMethod": "метод на разделяне {from} → {to}",
+  "activity.change.paidBy": "платено от {from} → {to}",
+  "activity.change.splitBetween": "разделено между {from} → {to}",
+  "activity.change.payerAmountsAdjusted": "коригирани суми на платците",
+  "activity.change.splitAmountsAdjusted": "коригирани дялове",
+  "activity.change.payer": "платец {from} → {to}",
+  "activity.change.recipient": "получател {from} → {to}",
   "activity.groupCreated": "създаде групата „{name}“",
   "activity.groupRenamed": "преименува групата от „{from}“ на „{to}“",
   "activity.currencyChanged": "смени валутата от {from} на {to}",
@@ -944,6 +973,9 @@ const bg: Record<TKey, string> = {
   "balances.excludedMany": "{count} разхода не можаха да бъдат превалутирани към {currency} и НЕ са включени в тези салда.",
   "balances.excludedHint": "Обнови валутните курсове или промени валутата на тези разходи.",
   "errors.noRateForCurrency": "Все още няма валутен курс за превалутиране от {currency} към {groupCurrency} — първо обнови курсовете или избери друга валута.",
+  "errors.tooManyRequests": "Твърде много заявки — опитайте отново след {seconds} с.",
+  "errors.tooManyScans": "Достигнахте лимита на сканирания засега — опитайте отново след {seconds} с.",
+  "errors.ratesRecentlyUpdated": "Курсовете бяха обновени съвсем наскоро — опитайте отново след няколко минути.",
 
   // ---- invite sharing ----
   "members.share": "Сподели",

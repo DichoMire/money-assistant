@@ -40,7 +40,11 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# local dev database (PGlite)
+# local dev database (PGlite) + throwaway test databases
 .pglite/
-.vercel
-.env*
+.pglite-smoke/
+
+# receipt eval fixtures hold real receipts (personal data) — never commit;
+# only the hash manifest.json inside is tracked (see scripts/receipt-eval.ts)
+scripts/receipt-fixtures/*
+!scripts/receipt-fixtures/manifest.json

@@ -1,6 +1,15 @@
 /* End-to-end smoke test of schema + migrations + group-data pipeline against
-   the embedded PGlite database. Run: npx tsx scripts/db-smoke.ts */
+   the embedded PGlite database. Run: npx tsx scripts/db-smoke.ts
+   Uses a throwaway .pglite-smoke/ directory (recreated every run) so it never
+   touches the developer's live .pglite/ data and is repeatable. */
+import { rmSync } from "node:fs";
 import { strict as assert } from "node:assert";
+
+const SMOKE_DIR = ".pglite-smoke";
+rmSync(SMOKE_DIR, { recursive: true, force: true });
+process.env.PGLITE_DIR = SMOKE_DIR;
+delete process.env.DATABASE_URL;
+delete process.env.POSTGRES_URL;
 import { eq } from "drizzle-orm";
 import { getDb } from "../src/db";
 import { aliases, expensePayers, expenseShares, expenses, fxRates, groups, users } from "../src/db/schema";

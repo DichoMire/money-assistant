@@ -4,7 +4,7 @@ import { useState } from "react";
 import { saveSettlement } from "@/app/actions";
 import { CURRENCIES } from "@/lib/currencies";
 import { localTodayString } from "@/lib/format";
-import { formatCents, parseAmount } from "@/lib/money";
+import { amountPlaceholder, formatCents, parseAmount } from "@/lib/money";
 import type { Debt } from "@/lib/simplify";
 import type { ExpenseDto, GroupDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
@@ -114,7 +114,7 @@ export function SettleModal({
             <input
               id="settle-amount"
               className="input font-semibold"
-              placeholder="0.00"
+              placeholder={amountPlaceholder(t.locale)}
               inputMode="decimal"
               value={amountStr}
               onChange={(e) => setAmountStr(e.target.value)}

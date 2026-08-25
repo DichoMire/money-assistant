@@ -31,16 +31,25 @@ export function roundHalfUp(n: number): number {
 /**
  * Pick the rate row for a transaction date: the latest row on or before the
  * date, or — when the transaction predates all stored rates — the earliest
- * row available. `rows` must be sorted ascending by date.
+ * row available, flagged `approx` so the UI can mark the conversion as
+ * approximate instead of silently presenting a much-later rate as exact.
+ * `rows` must be sorted ascending by date.
  */
-export function findRateRow(rows: FxRow[], dateStr: string): FxRow | null {
-  if (rows.length === 0) return null;
+export function findRateRowWithFlag(
+  rows: FxRow[],
+  dateStr: string
+): { row: FxRow | null; approx: boolean } {
+  if (rows.length === 0) return { row: null, approx: false };
   let candidate: FxRow | null = null;
   for (const row of rows) {
     if (row.date <= dateStr) candidate = row;
     else break;
   }
-  return candidate ?? rows[0];
+  return candidate ? { row: candidate, approx: false } : { row: rows[0], approx: true };
+}
+
+export function findRateRow(rows: FxRow[], dateStr: string): FxRow | null {
+  return findRateRowWithFlag(rows, dateStr).row;
 }
 
 /**

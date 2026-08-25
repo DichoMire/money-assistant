@@ -139,11 +139,13 @@ export function ExpenseList({
               {foreign &&
                 (e.convertedCents !== null ? (
                   <span
-                    className="block text-xs text-gray-400"
+                    className={`block text-xs ${e.approxRate ? "text-amber-600" : "text-gray-400"}`}
                     title={
-                      e.rateDate
-                        ? t("expenses.rateTooltip", { date: formatDate(e.rateDate, locale) })
-                        : undefined
+                      e.approxRate
+                        ? t("expenses.approxRateTooltip")
+                        : e.rateDate
+                          ? t("expenses.rateTooltip", { date: formatDate(e.rateDate, locale) })
+                          : undefined
                     }
                   >
                     ≈ {money(e.convertedCents, data.currency)}

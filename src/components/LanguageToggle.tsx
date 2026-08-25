@@ -7,6 +7,10 @@ import { useLocale } from "./LocaleProvider";
 
 const LABELS: Record<Locale, string> = { en: "EN", bg: "БГ" };
 
+// Deliberately bilingual (not a missed translation): a language switcher must
+// be readable BEFORE the user switches to a language they understand.
+const TOGGLE_ARIA_LABEL = "Language / Език";
+
 /** EN/БГ segmented switch; the choice is stored in a cookie and applies everywhere. */
 export function LanguageToggle() {
   const locale = useLocale();
@@ -23,7 +27,7 @@ export function LanguageToggle() {
     <div
       className={`flex shrink-0 overflow-hidden rounded-lg border border-gray-300 text-xs font-bold ${pending ? "opacity-60" : ""}`}
       role="group"
-      aria-label="Language / Език"
+      aria-label={TOGGLE_ARIA_LABEL}
     >
       {LOCALES.map((l) => (
         <button

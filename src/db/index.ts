@@ -19,10 +19,12 @@ async function init(): Promise<Db> {
   }
   // Local development fallback: embedded Postgres (PGlite) persisted under
   // .pglite/, with migrations applied on first connect. Zero setup required.
+  // PGLITE_DIR lets test scripts point at a throwaway directory instead of
+  // the developer's live data.
   const { PGlite } = await import("@electric-sql/pglite");
   const { drizzle: drizzlePglite } = await import("drizzle-orm/pglite");
   const { migrate } = await import("drizzle-orm/pglite/migrator");
-  const client = new PGlite(".pglite");
+  const client = new PGlite(process.env.PGLITE_DIR ?? ".pglite");
   const db = drizzlePglite(client, { schema });
   await migrate(db, { migrationsFolder: "./drizzle" });
   return db as unknown as Db;

@@ -1,6 +1,6 @@
 "use server";
 
-import { and, desc, eq, gt } from "drizzle-orm";
+import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getDb, withTransaction, type Db } from "@/db";
 import {
@@ -25,25 +25,19 @@ import {
   type SessionUser,
 } from "@/lib/action-helpers";
 import { isSupportedCurrency } from "@/lib/currencies";
-import { formatDate } from "@/lib/format";
 import type { TFunc } from "@/lib/i18n";
 import { getT } from "@/lib/i18n-server";
 import { getMembership, loadCircle } from "@/lib/group-data";
 import { mergeAliasReferences } from "@/lib/merge-alias";
-import { formatCents } from "@/lib/money";
+import { RATE_LIMITS, rateLimit } from "@/lib/rate-limit";
 import { inviteExpiry, inviteIsUsable, joinUrl, newInviteToken } from "@/lib/invites";
 import { convertCents, isFixedLegPair } from "@/lib/rates";
 import { refreshRates } from "@/lib/rates-fetch";
-import {
-  computeShares,
-  validatePayers,
-  SPLIT_METHODS,
-  SPLIT_METHOD_LABELS,
-  type SplitMethod,
-} from "@/lib/split";
+import { computeShares, validatePayers, SPLIT_METHODS } from "@/lib/split";
 import type {
   ActionResult,
   ActivityEntryDto,
+  ChangeFragment,
   CircleUserDto,
   ExpenseInput,
   InviteLinkDto,
@@ -71,16 +65,19 @@ async function currencyConversionError(
   return null;
 }
 
-function participantSummary(ids: string[], names: Map<string, string>): string {
-  if (ids.length > 4) return `${ids.length} people`;
-  return ids.map((id) => names.get(id) ?? "?").join(", ");
+/** Denormalized name-list snapshot for a paidBy/splitBetween fragment. The
+ *  renderer shows the names, or "{count} people" when the list is long. */
+function participantParams(ids: string[], names: Map<string, string>) {
+  return { names: ids.slice(0, 8).map((id) => names.get(id) ?? "?"), count: ids.length };
 }
 
 /**
- * Human-readable fragments describing what an expense edit changed, computed
- * against the rows as they were before the update. Distribution-only tweaks
- * are reported generically, and changes implied by an amount or method change
- * are not repeated.
+ * Machine-readable fragments describing what an expense edit changed, computed
+ * against the rows as they were before the update. Stored as {key, params}
+ * jsonb and rendered in the VIEWER's locale at display time (RFC 02 §3.3) —
+ * never as pre-rendered prose. Distribution-only tweaks are reported
+ * generically, and changes implied by an amount or method change are not
+ * repeated.
  */
 function buildExpenseChanges(params: {
   oldExpense: { description: string; amountCents: number; currency: string; date: string; splitMethod: string };
@@ -90,28 +87,35 @@ function buildExpenseChanges(params: {
   description: string;
   newShares: { aliasId: string; owedCents: number }[];
   aliasNames: Map<string, string>;
-}): string[] {
+}): ChangeFragment[] {
   const { oldExpense, oldPayers, oldShares, input, description, newShares, aliasNames } = params;
-  const changes: string[] = [];
+  const changes: ChangeFragment[] = [];
   const amountChanged =
     oldExpense.amountCents !== input.amountCents || oldExpense.currency !== input.currency;
   const methodChanged = oldExpense.splitMethod !== input.splitMethod;
 
   if (oldExpense.description !== description) {
-    changes.push(`description "${oldExpense.description}" → "${description}"`);
+    changes.push({ key: "description", params: { from: oldExpense.description, to: description } });
   }
   if (amountChanged) {
-    changes.push(
-      `amount ${formatCents(oldExpense.amountCents, oldExpense.currency)} → ${formatCents(input.amountCents, input.currency)}`
-    );
+    changes.push({
+      key: "amount",
+      params: {
+        fromCents: oldExpense.amountCents,
+        fromCurrency: oldExpense.currency,
+        toCents: input.amountCents,
+        toCurrency: input.currency,
+      },
+    });
   }
   if (oldExpense.date !== input.date) {
-    changes.push(`date ${formatDate(oldExpense.date)} → ${formatDate(input.date)}`);
+    changes.push({ key: "date", params: { from: oldExpense.date, to: input.date } });
   }
   if (methodChanged) {
-    changes.push(
-      `split method ${SPLIT_METHOD_LABELS[oldExpense.splitMethod as SplitMethod]} → ${SPLIT_METHOD_LABELS[input.splitMethod]}`
-    );
+    changes.push({
+      key: "splitMethod",
+      params: { from: oldExpense.splitMethod, to: input.splitMethod },
+    });
   }
 
   const sortedIds = (ids: string[]) => [...ids].sort().join(",");
@@ -120,11 +124,15 @@ function buildExpenseChanges(params: {
   const oldPayerIds = oldPayers.map((p) => p.aliasId).sort();
   const newPayerIds = input.payers.map((p) => p.aliasId).sort();
   if (sortedIds(oldPayerIds) !== sortedIds(newPayerIds)) {
-    changes.push(
-      `paid by ${participantSummary(oldPayerIds, aliasNames)} → ${participantSummary(newPayerIds, aliasNames)}`
-    );
+    changes.push({
+      key: "paidBy",
+      params: {
+        from: participantParams(oldPayerIds, aliasNames),
+        to: participantParams(newPayerIds, aliasNames),
+      },
+    });
   } else if (!amountChanged && payerKey(oldPayers) !== payerKey(input.payers)) {
-    changes.push("payer amounts adjusted");
+    changes.push({ key: "payerAmountsAdjusted" });
   }
 
   const shareKey = (l: { aliasId: string; owedCents: number }[]) =>
@@ -132,11 +140,15 @@ function buildExpenseChanges(params: {
   const oldShareIds = oldShares.map((s) => s.aliasId).sort();
   const newShareIds = newShares.map((s) => s.aliasId).sort();
   if (sortedIds(oldShareIds) !== sortedIds(newShareIds)) {
-    changes.push(
-      `split between ${participantSummary(oldShareIds, aliasNames)} → ${participantSummary(newShareIds, aliasNames)}`
-    );
+    changes.push({
+      key: "splitBetween",
+      params: {
+        from: participantParams(oldShareIds, aliasNames),
+        to: participantParams(newShareIds, aliasNames),
+      },
+    });
   } else if (!amountChanged && !methodChanged && shareKey(oldShares) !== shareKey(newShares)) {
-    changes.push("split amounts adjusted");
+    changes.push({ key: "splitAmountsAdjusted" });
   }
   return changes;
 }
@@ -171,15 +183,18 @@ export async function createGroup(name: string, currency: string): Promise<Actio
     if (!trimmed) return { ok: false, error: t("errors.groupNameRequired") };
     if (!isSupportedCurrency(currency)) return { ok: false, error: t("errors.unsupportedCurrency") };
     const db = await getDb();
-    const rows = await db
-      .insert(groups)
-      .values({ userId: user.id, name: trimmed, currency })
-      .returning({ id: groups.id });
-    // The owner participates too — give them a linked alias from the start.
-    await createLinkedAlias(db, rows[0].id, user);
-    await logActivity(db, rows[0].id, user, "group.created", { name: trimmed });
+    const groupId = await withTransaction(async (tx) => {
+      const rows = await tx
+        .insert(groups)
+        .values({ userId: user.id, name: trimmed, currency })
+        .returning({ id: groups.id });
+      // The owner participates too — give them a linked alias from the start.
+      await createLinkedAlias(tx, rows[0].id, user);
+      return rows[0].id;
+    });
+    await logActivity(db, groupId, user, "group.created", { name: trimmed });
     revalidatePath("/");
-    return { ok: true, id: rows[0].id };
+    return { ok: true, id: groupId };
   } catch (e) {
     return fail(e);
   }
@@ -233,17 +248,16 @@ export async function deleteGroup(groupId: string): Promise<ActionResult> {
     const db = await getDb();
     await requireRole(db, groupId, user.id, "owner");
     // FK order: aliases are referenced by payers/shares with RESTRICT, so
-    // remove transactions first, then aliases, then the group — atomically,
-    // so a mid-flight failure can't leave a half-deleted group.
+    // remove transactions first, then aliases, then the group — atomically
+    // and set-based, so a mid-flight failure can't leave a half-deleted group
+    // and a large group doesn't take 2N round trips.
     await withTransaction(async (tx) => {
-      const groupExpenses = await tx
+      const groupExpenseIds = tx
         .select({ id: expenses.id })
         .from(expenses)
         .where(eq(expenses.groupId, groupId));
-      for (const e of groupExpenses) {
-        await tx.delete(expensePayers).where(eq(expensePayers.expenseId, e.id));
-        await tx.delete(expenseShares).where(eq(expenseShares.expenseId, e.id));
-      }
+      await tx.delete(expensePayers).where(inArray(expensePayers.expenseId, groupExpenseIds));
+      await tx.delete(expenseShares).where(inArray(expenseShares.expenseId, groupExpenseIds));
       await tx.delete(expenses).where(eq(expenses.groupId, groupId));
       await tx.delete(aliases).where(eq(aliases.groupId, groupId));
       await tx.delete(groups).where(eq(groups.id, groupId));
@@ -482,7 +496,7 @@ export async function addCircleMember(groupId: string, targetUserId: string): Pr
     const targetRows = await db.select().from(users).where(eq(users.id, targetUserId));
     const target = targetRows[0];
     if (!target) return { ok: false, error: t("errors.accountNotFound") };
-    await joinGroup(db, groupId, {
+    await joinGroup(groupId, {
       id: target.id,
       email: target.email,
       name: target.name ?? target.email,
@@ -499,12 +513,16 @@ export async function addCircleMember(groupId: string, targetUserId: string): Pr
   }
 }
 
-async function joinGroup(db: Db, groupId: string, user: SessionUser) {
-  await db
-    .insert(groupMembers)
-    .values({ groupId, userId: user.id })
-    .onConflictDoNothing();
-  await createLinkedAlias(db, groupId, user);
+async function joinGroup(groupId: string, user: SessionUser) {
+  // Atomic: a membership row without a linked alias would leave the joiner
+  // half-present (listed as a member but absent from every split picker).
+  await withTransaction(async (tx) => {
+    await tx
+      .insert(groupMembers)
+      .values({ groupId, userId: user.id })
+      .onConflictDoNothing();
+    await createLinkedAlias(tx, groupId, user);
+  });
 }
 
 async function findActiveLink(db: Db, groupId: string) {
@@ -573,6 +591,10 @@ export async function acceptInvite(token: string): Promise<ActionResult> {
     const user = await requireUser();
     const db = await getDb();
     const t = await getT();
+    // Token-guessing ceiling; legitimate users accept a handful per hour at most.
+    const rl = await rateLimit(db, `invite:${user.id}`, RATE_LIMITS.invitePerUser);
+    if (!rl.ok) return { ok: false, error: t("errors.tooManyRequests", { seconds: rl.retryAfterSec }) };
+
     const rows = await db.select().from(groupInvites).where(eq(groupInvites.token, token));
     const invite = rows[0];
     if (!invite) return { ok: false, error: t("errors.inviteInvalid") };
@@ -583,7 +605,7 @@ export async function acceptInvite(token: string): Promise<ActionResult> {
       return { ok: false, error: t("errors.inviteExpired") };
     }
 
-    await joinGroup(db, invite.groupId, user);
+    await joinGroup(invite.groupId, user);
     await logActivity(db, invite.groupId, user, "member.joined", {
       name: user.name,
       email: user.email,
@@ -604,6 +626,8 @@ export async function saveExpense(input: ExpenseInput): Promise<ActionResult> {
     const user = await requireUser();
     const db = await getDb();
     const { group } = await requireRole(db, input.groupId, user.id, "member");
+    const rl = await rateLimit(db, `write:${user.id}`, RATE_LIMITS.writePerUser);
+    if (!rl.ok) return { ok: false, error: t("errors.tooManyRequests", { seconds: rl.retryAfterSec }) };
 
     const description = input.description.trim();
     if (!description) return { ok: false, error: t("errors.descriptionRequired") };
@@ -740,6 +764,8 @@ export async function saveSettlement(input: SettlementInput): Promise<ActionResu
     const user = await requireUser();
     const db = await getDb();
     const { group } = await requireRole(db, input.groupId, user.id, "member");
+    const rl = await rateLimit(db, `write:${user.id}`, RATE_LIMITS.writePerUser);
+    if (!rl.ok) return { ok: false, error: t("errors.tooManyRequests", { seconds: rl.retryAfterSec }) };
 
     if (input.fromAliasId === input.toAliasId) {
       return { ok: false, error: t("settle.differentPeople") };
@@ -821,20 +847,26 @@ export async function saveSettlement(input: SettlementInput): Promise<ActionResu
           date: input.date,
         };
         if (oldSettlement) {
-          const changes: string[] = [];
+          const changes: ChangeFragment[] = [];
           if (oldFromId !== input.fromAliasId) {
-            changes.push(`payer ${name(oldFromId)} → ${name(input.fromAliasId)}`);
+            changes.push({ key: "payer", params: { from: name(oldFromId), to: name(input.fromAliasId) } });
           }
           if (oldToId !== input.toAliasId) {
-            changes.push(`recipient ${name(oldToId)} → ${name(input.toAliasId)}`);
+            changes.push({ key: "recipient", params: { from: name(oldToId), to: name(input.toAliasId) } });
           }
           if (oldSettlement.amountCents !== input.amountCents || oldSettlement.currency !== input.currency) {
-            changes.push(
-              `amount ${formatCents(oldSettlement.amountCents, oldSettlement.currency)} → ${formatCents(input.amountCents, input.currency)}`
-            );
+            changes.push({
+              key: "amount",
+              params: {
+                fromCents: oldSettlement.amountCents,
+                fromCurrency: oldSettlement.currency,
+                toCents: input.amountCents,
+                toCurrency: input.currency,
+              },
+            });
           }
           if (oldSettlement.date !== input.date) {
-            changes.push(`date ${formatDate(oldSettlement.date)} → ${formatDate(input.date)}`);
+            changes.push({ key: "date", params: { from: oldSettlement.date, to: input.date } });
           }
           if (changes.length > 0) {
             await logActivity(tx, input.groupId, user, "payment.updated", { ...baseDetails, changes });
@@ -914,7 +946,17 @@ export async function deleteExpense(expenseId: string): Promise<ActionResult> {
 
 export async function updateRatesNow(): Promise<ActionResult> {
   try {
-    await requireUser();
+    const t = await getT();
+    const user = await requireUser();
+    const db = await getDb();
+    // Global cooldown first (rates change once a day — a refresh 10 minutes
+    // ago is as fresh as it gets), then a per-user ceiling.
+    const globalRl = await rateLimit(db, "rates:global", RATE_LIMITS.ratesGlobal);
+    if (!globalRl.ok) return { ok: false, error: t("errors.ratesRecentlyUpdated") };
+    const userRl = await rateLimit(db, `rates:${user.id}`, RATE_LIMITS.ratesPerUser);
+    if (!userRl.ok) {
+      return { ok: false, error: t("errors.tooManyRequests", { seconds: userRl.retryAfterSec }) };
+    }
     await refreshRates();
     revalidatePath("/", "layout");
     return { ok: true };

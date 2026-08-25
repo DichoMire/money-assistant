@@ -44,6 +44,9 @@ export type ExpenseDto = {
   convertedCents: number | null;
   /** Date of the FX rate used for the conversion (null if none / not needed). */
   rateDate: string | null;
+  /** True when the expense predates all stored rates and the earliest row was
+   *  used as an approximation (rendered with a "≈" hint). */
+  approxRate: boolean;
   /** The receipt scan this expense was converted from, if any. */
   scanId: string | null;
 };
@@ -191,6 +194,17 @@ export type ScanEditInput = {
 export type ParseReceiptResult =
   | { ok: true; scanId: string; duplicate?: boolean }
   | { ok: false; error: string };
+
+/**
+ * One entry of an activity-log `details.changes` array. New rows store
+ * machine-readable {key, params} fragments rendered in the VIEWER's locale at
+ * display time (ActivityModal). Plain strings are legacy rows written before
+ * this existed — they render verbatim, in the English they were frozen in,
+ * and are never written anew.
+ */
+export type ChangeFragment =
+  | string
+  | { key: string; params?: Record<string, unknown> };
 
 export type ActivityEntryDto = {
   id: string;

@@ -25,7 +25,7 @@ export const viewport: Viewport = {
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getT();
   return {
-    title: "Money Assistant",
+    title: t("app.title"),
     description: t("app.tagline"),
     icons: {
       apple: "/apple-touch-icon.png",

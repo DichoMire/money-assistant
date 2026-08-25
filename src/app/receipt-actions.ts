@@ -3,7 +3,7 @@
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { getDb, type Db } from "@/db";
+import { getDb, withTransaction, type Db } from "@/db";
 import { aliases, expenses, receiptItemShares, receiptItems, receiptScanImages, receiptScans } from "@/db/schema";
 import {
   fail,
@@ -22,6 +22,7 @@ import {
   resolveDiscountCents,
   type ConvertItem,
 } from "@/lib/receipt-convert";
+import { RATE_LIMITS, rateLimit } from "@/lib/rate-limit";
 import { parseReceiptImage } from "@/lib/receipt-parse";
 import { MAX_RECEIPT_ITEMS, reconcile } from "@/lib/receipt-schema";
 import { todayString } from "@/lib/rates";
@@ -63,6 +64,16 @@ export async function parseReceipt(groupId: string, formData: FormData): Promise
       .limit(1);
     if (existing[0]) return { ok: true, scanId: existing[0].id, duplicate: true };
 
+    // LLM-spend guard. Runs after the dedupe short-circuit on purpose:
+    // re-opening an existing scan costs nothing and is never blocked.
+    for (const [limits, key] of [
+      [RATE_LIMITS.scanPerMinute, `scan:${user.id}`],
+      [RATE_LIMITS.scanPerDay, `scand:${user.id}`],
+    ] as const) {
+      const rl = await rateLimit(db, key, limits);
+      if (!rl.ok) return { ok: false, error: t("errors.tooManyScans", { seconds: rl.retryAfterSec }) };
+    }
+
     const outcome = await parseReceiptImage(bytes, file.type, group.currency);
     if (!outcome.ok) {
       const messages = {
@@ -77,39 +88,37 @@ export async function parseReceipt(groupId: string, formData: FormData): Promise
     }
     const { receipt } = outcome;
 
-    const scanRows = await db
-      .insert(receiptScans)
-      .values({
-        groupId,
-        createdBy: user.id,
-        merchant: receipt.merchant,
-        date: receipt.date ?? todayString(),
-        currency: receipt.currency,
-        subtotalCents: receipt.subtotalCents,
-        taxCents: receipt.taxCents,
-        tipCents: receipt.tipCents,
-        discountsCents: receipt.discountsCents,
-        totalCents: receipt.totalCents,
-        confidence: receipt.confidence,
-        reconciles: outcome.reconciles,
-        model: outcome.model,
-        imageHash,
-      })
-      .returning({ id: receiptScans.id });
-    const scanId = scanRows[0].id;
-
-    // No transactions on the Neon HTTP driver — insert sequentially and clean
-    // up the scan row (cascade) if a later step fails, so no orphan drafts.
-    try {
-      await db.insert(receiptScanImages).values({
-        scanId,
+    // Scan header, image, and items land atomically — no orphan drafts.
+    const scanId = await withTransaction(async (tx) => {
+      const scanRows = await tx
+        .insert(receiptScans)
+        .values({
+          groupId,
+          createdBy: user.id,
+          merchant: receipt.merchant,
+          date: receipt.date ?? todayString(),
+          currency: receipt.currency,
+          subtotalCents: receipt.subtotalCents,
+          taxCents: receipt.taxCents,
+          tipCents: receipt.tipCents,
+          discountsCents: receipt.discountsCents,
+          totalCents: receipt.totalCents,
+          confidence: receipt.confidence,
+          reconciles: outcome.reconciles,
+          model: outcome.model,
+          imageHash,
+        })
+        .returning({ id: receiptScans.id });
+      const id = scanRows[0].id;
+      await tx.insert(receiptScanImages).values({
+        scanId: id,
         data: bytes,
         contentType: file.type,
         byteSize: bytes.byteLength,
       });
-      await db.insert(receiptItems).values(
+      await tx.insert(receiptItems).values(
         receipt.items.map((item, position) => ({
-          scanId,
+          scanId: id,
           position,
           rawText: item.rawText,
           name: item.name,
@@ -119,10 +128,8 @@ export async function parseReceipt(groupId: string, formData: FormData): Promise
           category: item.category,
         }))
       );
-    } catch (error) {
-      await db.delete(receiptScans).where(eq(receiptScans.id, scanId)).catch(() => {});
-      throw error;
-    }
+      return id;
+    });
 
     await logActivity(db, groupId, user, "receipt.scanned", {
       merchant: receipt.merchant,
@@ -253,44 +260,49 @@ async function persistScanEdits(
       ? resolveDiscountCents(itemsSum, input.discountPercentBp)
       : input.discountsCents;
 
-  await db.delete(receiptItems).where(eq(receiptItems.scanId, scan.id));
-  const inserted = await db
-    .insert(receiptItems)
-    .values(
-      items.map((item) => ({
-        scanId: scan.id,
-        position: item.position,
-        rawText: item.rawText,
-        name: item.name,
-        quantity: item.quantity,
-        unitPriceCents: item.unitPriceCents,
-        totalCents: item.totalCents,
-        category: item.category,
-        assignMode: item.assignMode,
-      }))
-    )
-    .returning({ id: receiptItems.id });
-  const shareValues = items.flatMap((item, i) =>
-    item.shares.map((s) => ({ itemId: inserted[i].id, aliasId: s.aliasId, exactCents: s.exactCents }))
-  );
-  if (shareValues.length > 0) await db.insert(receiptItemShares).values(shareValues);
-
+  // The whole-document rewrite (delete items -> reinsert -> shares -> header)
+  // is atomic: a mid-flight failure must never leave a scan stripped of its
+  // items or with items detached from their assignments.
   const merchant = input.merchant?.trim().slice(0, 120) || null;
-  await db
-    .update(receiptScans)
-    .set({
-      merchant,
-      date: input.date,
-      currency: input.currency,
-      taxCents: input.taxCents,
-      tipCents: input.tipCents,
-      discountsCents,
-      discountPercentBp: input.discountPercentBp,
-      totalCents: input.totalCents,
-      reconciles: reconcile({ ...input, discountsCents, items }).ok,
-      updatedAt: new Date(),
-    })
-    .where(eq(receiptScans.id, scan.id));
+  await withTransaction(async (tx) => {
+    await tx.delete(receiptItems).where(eq(receiptItems.scanId, scan.id));
+    const inserted = await tx
+      .insert(receiptItems)
+      .values(
+        items.map((item) => ({
+          scanId: scan.id,
+          position: item.position,
+          rawText: item.rawText,
+          name: item.name,
+          quantity: item.quantity,
+          unitPriceCents: item.unitPriceCents,
+          totalCents: item.totalCents,
+          category: item.category,
+          assignMode: item.assignMode,
+        }))
+      )
+      .returning({ id: receiptItems.id });
+    const shareValues = items.flatMap((item, i) =>
+      item.shares.map((s) => ({ itemId: inserted[i].id, aliasId: s.aliasId, exactCents: s.exactCents }))
+    );
+    if (shareValues.length > 0) await tx.insert(receiptItemShares).values(shareValues);
+
+    await tx
+      .update(receiptScans)
+      .set({
+        merchant,
+        date: input.date,
+        currency: input.currency,
+        taxCents: input.taxCents,
+        tipCents: input.tipCents,
+        discountsCents,
+        discountPercentBp: input.discountPercentBp,
+        totalCents: input.totalCents,
+        reconciles: reconcile({ ...input, discountsCents, items }).ok,
+        updatedAt: new Date(),
+      })
+      .where(eq(receiptScans.id, scan.id));
+  });
 
   revalidateScanPaths(scan.groupId, scan.id);
   return { ok: true, scan, items, aliasNames, discountsCents };

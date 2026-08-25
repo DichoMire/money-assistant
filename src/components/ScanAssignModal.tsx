@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { allocateByWeights, formatCents, parseAmount } from "@/lib/money";
+import { allocateByWeights, amountPlaceholder, formatCents, parseAmount } from "@/lib/money";
 import type { AliasDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
 import { useT } from "./LocaleProvider";
@@ -153,7 +153,7 @@ export function ScanAssignModal({
                   <div className="w-28 shrink-0">
                     <input
                       className="input !py-1.5 text-right"
-                      placeholder="0.00"
+                      placeholder={amountPlaceholder(t.locale)}
                       inputMode="decimal"
                       value={exactVals[a.id] ?? ""}
                       onChange={(e) => setExactVals({ ...exactVals, [a.id]: e.target.value })}

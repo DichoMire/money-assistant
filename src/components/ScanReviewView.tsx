@@ -6,7 +6,7 @@ import { useState } from "react";
 import { convertScan, saveScan } from "@/app/receipt-actions";
 import { CURRENCIES } from "@/lib/currencies";
 import { countWord } from "@/lib/i18n";
-import { currencySymbol, formatCents, parseAmount, parseNumber } from "@/lib/money";
+import { amountPlaceholder, currencySymbol, formatCents, parseAmount, parseNumber } from "@/lib/money";
 import {
   computePersonTotals,
   resolveDiscountCents,
@@ -396,12 +396,12 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
           <div className="flex flex-wrap gap-2">
             <div className="w-24 flex-1 max-sm:w-[calc(50%-0.25rem)] max-sm:flex-none">
               <label className="label" htmlFor="scan-tax">{t("scanReview.tax")}</label>
-              <input id="scan-tax" className="input" placeholder="0.00" inputMode="decimal"
+              <input id="scan-tax" className="input" placeholder={amountPlaceholder(t.locale)} inputMode="decimal"
                 value={taxStr} onChange={(e) => setTaxStr(e.target.value)} />
             </div>
             <div className="w-24 flex-1 max-sm:w-[calc(50%-0.25rem)] max-sm:flex-none">
               <label className="label" htmlFor="scan-tip">{t("scanReview.tip")}</label>
-              <input id="scan-tip" className="input" placeholder="0.00" inputMode="decimal"
+              <input id="scan-tip" className="input" placeholder={amountPlaceholder(t.locale)} inputMode="decimal"
                 value={tipStr} onChange={(e) => setTipStr(e.target.value)} />
             </div>
             <div className="w-24 flex-1 max-sm:w-[calc(50%-0.25rem)] max-sm:flex-none">
@@ -420,7 +420,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                   {discountMode === "percent" ? "%" : currencySymbol(currency, t.locale)}
                 </button>
                 <input id="scan-disc" className="input min-w-0 flex-1 !rounded-l-none"
-                  placeholder={discountMode === "percent" ? "0" : "0.00"} inputMode="decimal"
+                  placeholder={discountMode === "percent" ? "0" : amountPlaceholder(t.locale)} inputMode="decimal"
                   value={discountStr} onChange={(e) => setDiscountStr(e.target.value)} />
               </div>
               {discountMode === "percent" && !draftError && discountsCents !== null && discountsCents > 0 && (
@@ -429,7 +429,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
             </div>
             <div className="w-28 flex-1 max-sm:w-[calc(50%-0.25rem)] max-sm:flex-none">
               <label className="label" htmlFor="scan-total">{t("scanReview.receiptTotal")}</label>
-              <input id="scan-total" className="input font-semibold" placeholder="0.00" inputMode="decimal"
+              <input id="scan-total" className="input font-semibold" placeholder={amountPlaceholder(t.locale)} inputMode="decimal"
                 value={totalStr} onChange={(e) => setTotalStr(e.target.value)} />
             </div>
           </div>
@@ -553,7 +553,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                     </button>
                     <input
                       className={`input min-w-0 flex-1 !rounded-l-none !py-1.5 text-right ${itemCents !== null && itemCents < 0 ? "amount-neg" : ""}`}
-                      placeholder="0.00"
+                      placeholder={amountPlaceholder(t.locale)}
                       aria-label={t("scanReview.priceAria")}
                       inputMode="decimal"
                       value={it.totalStr}

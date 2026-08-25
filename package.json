@@ -7,9 +7,13 @@
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:math && npm run test:receipt && npm run test:receipt-db && npm run test:reliability && npm run test:smoke",
+    "test:reliability": "tsx scripts/reliability.test.ts",
     "test:math": "tsx scripts/math.test.ts",
     "test:receipt": "tsx scripts/receipt.test.ts",
     "test:receipt-db": "tsx scripts/receipt-db.test.ts",
+    "test:smoke": "tsx scripts/db-smoke.ts",
     "seed:scan": "tsx scripts/seed-scan-dev.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push"

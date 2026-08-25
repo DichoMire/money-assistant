@@ -49,6 +49,12 @@ export function currencySymbol(currency: string, locale: Locale = "en"): string 
   return symbol;
 }
 
+/** Locale-styled placeholder for amount inputs ("0.00" en, "0,00" bg). */
+export function amountPlaceholder(locale: Locale = "en", signed = false): string {
+  const zero = locale === "bg" ? "0,00" : "0.00";
+  return signed ? `±${zero}` : zero;
+}
+
 // Spaces users type as thousands separators. JS \s already matches NBSP
 // (U+00A0) and narrow NBSP (U+202F), which bg-BG formatting itself produces,
 // so pasted amounts round-trip.

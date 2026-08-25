@@ -5,7 +5,7 @@ import { saveExpense } from "@/app/actions";
 import { CURRENCIES } from "@/lib/currencies";
 import { localTodayString } from "@/lib/format";
 import { countWord, type TKey } from "@/lib/i18n";
-import { formatCents, parseAmount, parseNumber } from "@/lib/money";
+import { amountPlaceholder, formatCents, parseAmount, parseNumber } from "@/lib/money";
 import {
   computeShares,
   type ComputedShare,
@@ -233,7 +233,7 @@ export function ExpenseModal({
           <input
             id="exp-amount"
             className="input text-lg font-semibold"
-            placeholder="0.00"
+            placeholder={amountPlaceholder(t.locale)}
             inputMode="decimal"
             value={amountStr}
             onChange={(e) => setAmountStr(e.target.value)}
@@ -295,7 +295,7 @@ export function ExpenseModal({
                 <div className="w-28 shrink-0">
                   <input
                     className="input !py-1.5 text-right"
-                    placeholder="0.00"
+                    placeholder={amountPlaceholder(t.locale)}
                     inputMode="decimal"
                     value={multiPaid[a.id] ?? ""}
                     onChange={(e) => setMultiPaid({ ...multiPaid, [a.id]: e.target.value })}
@@ -460,7 +460,7 @@ export function ExpenseModal({
                 <div className="relative w-28 shrink-0">
                   <input
                     className={`input !py-1.5 text-right ${method === "percent" ? "!pr-7" : ""}`}
-                    placeholder={method === "shares" ? "0" : method === "adjustment" ? "±0.00" : "0.00"}
+                    placeholder={method === "shares" ? "0" : method === "adjustment" ? amountPlaceholder(t.locale, true) : amountPlaceholder(t.locale)}
                     inputMode="decimal"
                     value={
                       (method === "exact" ? exactVals : method === "percent" ? percentVals : method === "shares" ? sharesVals : adjustVals)[a.id] ?? ""

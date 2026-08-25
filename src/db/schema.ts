@@ -52,15 +52,19 @@ export const groups = pgTable("groups", {
 // A participant in a group. userId links the alias to a real account ("real
 // member"); null means a virtual member tracked on their behalf. Removing a
 // member detaches the link instead of deleting the alias, preserving history.
-export const aliases = pgTable("aliases", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  groupId: uuid("group_id")
-    .notNull()
-    .references(() => groups.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+export const aliases = pgTable(
+  "aliases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("aliases_group_idx").on(t.groupId)]
+);
 
 // Non-owner accounts that joined a group. The owner is groups.userId and has
 // no row here, which keeps pre-multi-user groups valid without a backfill.
@@ -75,41 +79,52 @@ export const groupMembers = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.groupId, t.userId] })]
+  (t) => [
+    primaryKey({ columns: [t.groupId, t.userId] }),
+    index("group_members_user_idx").on(t.userId),
+  ]
 );
 
 // Shareable multi-use join links, valid for 7 days (the daily cron expires
 // them). status: active | expired | revoked.
-export const groupInvites = pgTable("group_invites", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  groupId: uuid("group_id")
-    .notNull()
-    .references(() => groups.id, { onDelete: "cascade" }),
-  token: text("token").notNull().unique(),
-  createdBy: uuid("created_by")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  status: text("status").notNull().default("active"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  expiresAt: timestamp("expires_at").notNull(),
-});
+export const groupInvites = pgTable(
+  "group_invites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    token: text("token").notNull().unique(),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (t) => [index("group_invites_group_idx").on(t.groupId)]
+);
 
 // kind: "expense" | "settlement". A settlement ("A paid B") is stored as a
 // transaction with one payer (A) and one share (B owes the full amount), which
 // makes it flow through the same balance math as regular expenses.
-export const expenses = pgTable("expenses", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  groupId: uuid("group_id")
-    .notNull()
-    .references(() => groups.id, { onDelete: "cascade" }),
-  kind: text("kind").notNull().default("expense"),
-  description: text("description").notNull(),
-  amountCents: integer("amount_cents").notNull(),
-  currency: text("currency").notNull(),
-  date: date("date", { mode: "string" }).notNull(),
-  splitMethod: text("split_method").notNull().default("equal"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+export const expenses = pgTable(
+  "expenses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull().default("expense"),
+    description: text("description").notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    currency: text("currency").notNull(),
+    date: date("date", { mode: "string" }).notNull(),
+    splitMethod: text("split_method").notNull().default("equal"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("expenses_group_date_idx").on(t.groupId, t.date)]
+);
 
 export const expensePayers = pgTable(
   "expense_payers",
@@ -122,7 +137,10 @@ export const expensePayers = pgTable(
       .references(() => aliases.id, { onDelete: "restrict" }),
     paidCents: integer("paid_cents").notNull(),
   },
-  (t) => [primaryKey({ columns: [t.expenseId, t.aliasId] })]
+  (t) => [
+    primaryKey({ columns: [t.expenseId, t.aliasId] }),
+    index("expense_payers_alias_idx").on(t.aliasId),
+  ]
 );
 
 // splitValue holds the raw user input for the chosen split method (exact cents,
@@ -140,23 +158,30 @@ export const expenseShares = pgTable(
     owedCents: integer("owed_cents").notNull(),
     splitValue: doublePrecision("split_value"),
   },
-  (t) => [primaryKey({ columns: [t.expenseId, t.aliasId] })]
+  (t) => [
+    primaryKey({ columns: [t.expenseId, t.aliasId] }),
+    index("expense_shares_alias_idx").on(t.aliasId),
+  ]
 );
 
 // Owner-visible audit trail of everything that happens in a group. Names and
 // amounts are denormalized into details so entries stay readable after the
 // people or expenses they mention are deleted.
-export const activityLog = pgTable("activity_log", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  groupId: uuid("group_id")
-    .notNull()
-    .references(() => groups.id, { onDelete: "cascade" }),
-  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
-  actorName: text("actor_name").notNull(),
-  action: text("action").notNull(),
-  details: jsonb("details").$type<Record<string, unknown>>().notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+export const activityLog = pgTable(
+  "activity_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorName: text("actor_name").notNull(),
+    action: text("action").notNull(),
+    details: jsonb("details").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("activity_log_group_created_idx").on(t.groupId, t.createdAt)]
+);
 
 // A parsed receipt draft. status: "draft" | "converted". expenseId links the
 // expense created by conversion; deleting that expense nulls the link (the UI
@@ -192,7 +217,10 @@ export const receiptScans = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [index("receipt_scans_group_hash_idx").on(t.groupId, t.imageHash)]
+  (t) => [
+    index("receipt_scans_group_hash_idx").on(t.groupId, t.imageHash),
+    index("receipt_scans_expense_idx").on(t.expenseId),
+  ]
 );
 
 // The downscaled receipt JPEG lives in its own table so scan-list queries
@@ -258,6 +286,19 @@ export const groupReads = pgTable(
     lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.groupId, t.userId] })]
+);
+
+// Fixed-window counters backing the in-Postgres sliding-window rate limiter
+// (src/lib/rate-limit.ts). key examples: "scan:<userId>", "rates:global".
+// Stale windows are purged by the daily cron.
+export const rateLimits = pgTable(
+  "rate_limits",
+  {
+    key: text("key").notNull(),
+    windowStart: timestamp("window_start").notNull(),
+    count: integer("count").notNull().default(1),
+  },
+  (t) => [primaryKey({ columns: [t.key, t.windowStart] })]
 );
 
 // One row per day of ECB reference rates (base EUR), fetched by the Vercel

@@ -4,14 +4,6 @@ import { allocateByWeights, formatCents } from "./money";
 export const SPLIT_METHODS = ["equal", "exact", "percent", "shares", "adjustment"] as const;
 export type SplitMethod = (typeof SPLIT_METHODS)[number];
 
-export const SPLIT_METHOD_LABELS: Record<SplitMethod, string> = {
-  equal: "equally",
-  exact: "by exact amounts",
-  percent: "by percentages",
-  shares: "by shares",
-  adjustment: "by adjustment",
-};
-
 /**
  * One participant entry of the split as entered in the UI.
  * The meaning of `value` depends on the method:

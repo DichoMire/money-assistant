@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { getActivityLog } from "@/app/actions";
 import { formatDate } from "@/lib/format";
-import type { Locale, TFunc } from "@/lib/i18n";
+import type { Locale, TFunc, TKey } from "@/lib/i18n";
 import { formatCents } from "@/lib/money";
+import { SPLIT_METHODS } from "@/lib/split";
 import type { ActivityEntryDto, GroupDto } from "@/lib/types";
 import { useLocale, useT } from "./LocaleProvider";
 import { Modal } from "./Modal";
@@ -13,7 +14,6 @@ function describe(entry: ActivityEntryDto, t: TFunc, locale: Locale): string {
   const d = entry.details;
   const s = (key: string) => String(d[key] ?? "?");
   const money = () => formatCents(Number(d.amountCents ?? 0), String(d.currency ?? "USD"), locale);
-  // Stored details.changes fragments are historical data and stay as written.
   const merchant = d.merchant ? t("activity.fromMerchant", { merchant: s("merchant") }) : "";
   switch (entry.action) {
     case "group.created":
@@ -73,6 +73,65 @@ function describe(entry: ActivityEntryDto, t: TFunc, locale: Locale): string {
   }
 }
 
+/** "Ana, Ben" for short lists, "{count} people" beyond 4 — from the stored
+ *  {names, count} snapshot (see participantParams in actions.ts). */
+function renderNameList(value: unknown, t: TFunc): string {
+  if (typeof value !== "object" || value === null) return "?";
+  const { names, count } = value as { names?: unknown; count?: unknown };
+  const n = typeof count === "number" ? count : Array.isArray(names) ? names.length : 0;
+  if (n > 4) return t("activity.nPeople", { count: n });
+  return Array.isArray(names) && names.length > 0 ? names.map(String).join(", ") : "?";
+}
+
+/**
+ * Render one details.changes fragment in the viewer's locale. Legacy rows
+ * stored pre-rendered English strings — those render verbatim (immutable
+ * history); everything written since RFC 02 §3.3 is {key, params} and gets
+ * display-time formatting. Unknown keys render as the key itself so a newer
+ * writer never crashes an older reader.
+ */
+function renderChange(fragment: unknown, t: TFunc, locale: Locale): string {
+  if (typeof fragment === "string") return fragment;
+  if (typeof fragment !== "object" || fragment === null) return String(fragment);
+  const { key, params } = fragment as { key?: unknown; params?: unknown };
+  if (typeof key !== "string") return "?";
+  const p = (typeof params === "object" && params !== null ? params : {}) as Record<string, unknown>;
+  const str = (k: string) => String(p[k] ?? "?");
+  switch (key) {
+    case "description":
+      return t("activity.change.description", { from: str("from"), to: str("to") });
+    case "amount":
+      return t("activity.change.amount", {
+        from: formatCents(Number(p.fromCents ?? 0), String(p.fromCurrency ?? "EUR"), locale),
+        to: formatCents(Number(p.toCents ?? 0), String(p.toCurrency ?? "EUR"), locale),
+      });
+    case "date":
+      return t("activity.change.date", {
+        from: formatDate(str("from"), locale),
+        to: formatDate(str("to"), locale),
+      });
+    case "splitMethod": {
+      const label = (v: string) =>
+        (SPLIT_METHODS as readonly string[]).includes(v) ? t(`splitMethod.${v}` as TKey) : v;
+      return t("activity.change.splitMethod", { from: label(str("from")), to: label(str("to")) });
+    }
+    case "paidBy":
+      return t("activity.change.paidBy", { from: renderNameList(p.from, t), to: renderNameList(p.to, t) });
+    case "splitBetween":
+      return t("activity.change.splitBetween", { from: renderNameList(p.from, t), to: renderNameList(p.to, t) });
+    case "payerAmountsAdjusted":
+      return t("activity.change.payerAmountsAdjusted");
+    case "splitAmountsAdjusted":
+      return t("activity.change.splitAmountsAdjusted");
+    case "payer":
+      return t("activity.change.payer", { from: str("from"), to: str("to") });
+    case "recipient":
+      return t("activity.change.recipient", { from: str("from"), to: str("to") });
+    default:
+      return key;
+  }
+}
+
 function timestamp(iso: string, locale: Locale): string {
   const time = new Date(iso).toLocaleTimeString(locale === "bg" ? "bg-BG" : [], {
     hour: "2-digit",
@@ -114,7 +173,9 @@ export function ActivityModal({ group, onClose }: { group: GroupDto; onClose: ()
                   {describe(entry, t, locale)}
                   {Array.isArray(entry.details.changes) && entry.details.changes.length > 0 && (
                     <span className="mt-0.5 block text-xs text-gray-400">
-                      {(entry.details.changes as unknown[]).map(String).join(" · ")}
+                      {(entry.details.changes as unknown[])
+                        .map((c) => renderChange(c, t, locale))
+                        .join(" · ")}
                     </span>
                   )}
                 </span>

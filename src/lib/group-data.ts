@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { getDb, type Db } from "@/db";
 import {
   activityLog,
@@ -18,7 +18,7 @@ import { inviteIsUsable } from "./invites";
 import { allocateByWeights } from "./money";
 import {
   convertCents,
-  findRateRow,
+  findRateRowWithFlag,
   isFixedLegPair,
   ratesAreStale,
   todayString,
@@ -148,14 +148,13 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
   if (!membership) return null;
   const { group } = membership;
 
-  const [aliasRows, expenseRows, fxRowsRaw, memberRows, ownerRows, scanLinkRows] = await Promise.all([
+  const [aliasRows, expenseRows, memberRows, ownerRows, scanLinkRows] = await Promise.all([
     db.select().from(aliases).where(eq(aliases.groupId, groupId)).orderBy(asc(aliases.createdAt)),
     db
       .select()
       .from(expenses)
       .where(eq(expenses.groupId, groupId))
       .orderBy(desc(expenses.date), desc(expenses.createdAt)),
-    db.select().from(fxRates).orderBy(asc(fxRates.date)),
     db
       .select({ user: users })
       .from(groupMembers)
@@ -177,15 +176,46 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
           db.select().from(expenseShares).where(inArray(expenseShares.expenseId, expenseIds)),
         ])
       : [[], []];
+  const payersByExpense = new Map<string, typeof payerRows>();
+  for (const p of payerRows) {
+    const list = payersByExpense.get(p.expenseId);
+    if (list) list.push(p);
+    else payersByExpense.set(p.expenseId, [p]);
+  }
+  const sharesByExpense = new Map<string, typeof shareRows>();
+  for (const s of shareRows) {
+    const list = sharesByExpense.get(s.expenseId);
+    if (list) list.push(s);
+    else sharesByExpense.set(s.expenseId, [s]);
+  }
 
-  const fxRows: FxRow[] = fxRowsRaw.map((r) => ({ date: r.date, rates: r.rates }));
+  // FX rows are fetched only when some expense actually needs an ECB rate
+  // (fixed euro legs and same-currency rows don't — the common Bulgarian
+  // case), and bounded below by the oldest such expense: everything on or
+  // after that date, plus a single anchor row just before it. For every
+  // lookup findRateRow performs this is byte-identical to fetching the whole
+  // table, without dragging years of history into every page view.
+  const ecbDates = expenseRows
+    .filter((e) => e.currency !== group.currency && !isFixedLegPair(e.currency, group.currency))
+    .map((e) => e.date);
+  let fxRows: FxRow[] = [];
+  let latestDate: string | null = null;
+  if (ecbDates.length > 0) {
+    const minDate = ecbDates.reduce((m, d) => (d < m ? d : m));
+    const [inRange, anchor] = await Promise.all([
+      db.select().from(fxRates).where(gte(fxRates.date, minDate)).orderBy(asc(fxRates.date)),
+      db.select().from(fxRates).where(lt(fxRates.date, minDate)).orderBy(desc(fxRates.date)).limit(1),
+    ]);
+    fxRows = [...anchor, ...inRange].map((r) => ({ date: r.date, rates: r.rates }));
+    latestDate = fxRows.at(-1)?.date ?? null;
+  }
 
   const expenseDtos: ExpenseDto[] = expenseRows.map((e) => {
     const needsConversion = e.currency !== group.currency;
     const usesEcbRate = needsConversion && !isFixedLegPair(e.currency, group.currency);
-    const rateRow = usesEcbRate ? findRateRow(fxRows, e.date) : null;
+    const rate = usesEcbRate ? findRateRowWithFlag(fxRows, e.date) : { row: null, approx: false };
     const convertedCents = needsConversion
-      ? convertCents(e.amountCents, e.currency, group.currency, rateRow)
+      ? convertCents(e.amountCents, e.currency, group.currency, rate.row)
       : e.amountCents;
     return {
       id: e.id,
@@ -195,15 +225,21 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
       currency: e.currency,
       date: e.date,
       splitMethod: e.splitMethod as SplitMethod,
-      payers: payerRows
-        .filter((p) => p.expenseId === e.id)
-        .map((p) => ({ aliasId: p.aliasId, paidCents: p.paidCents })),
-      shares: shareRows
-        .filter((s) => s.expenseId === e.id)
-        .map((s) => ({ aliasId: s.aliasId, owedCents: s.owedCents, splitValue: s.splitValue })),
+      payers: (payersByExpense.get(e.id) ?? []).map((p) => ({
+        aliasId: p.aliasId,
+        paidCents: p.paidCents,
+      })),
+      shares: (sharesByExpense.get(e.id) ?? []).map((s) => ({
+        aliasId: s.aliasId,
+        owedCents: s.owedCents,
+        splitValue: s.splitValue,
+      })),
       convertedCents,
       // Fixed-leg conversions (e.g. HRK <-> EUR) use no ECB rate, so no rate date.
-      rateDate: usesEcbRate ? (rateRow?.date ?? null) : null,
+      rateDate: usesEcbRate ? (rate.row?.date ?? null) : null,
+      // True when the expense predates every stored rate row and the earliest
+      // row was used as a stand-in — rendered with a "≈" hint.
+      approxRate: convertedCents !== null && rate.approx,
       scanId: scanByExpense.get(e.id) ?? null,
     };
   });
@@ -224,12 +260,9 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
   }
 
   const net = netBalances(transactions);
-  const latestDate = fxRows.at(-1)?.date ?? null;
   // Only floating pairs need ECB rates; fixed euro legs must not trigger the
   // stale-rates warning.
-  const needsConversion = expenseDtos.some(
-    (e) => e.currency !== group.currency && !isFixedLegPair(e.currency, group.currency)
-  );
+  const needsConversion = ecbDates.length > 0;
   // Expenses that could not be converted are EXCLUDED from the balance math
   // above — surface that loudly rather than showing silently-wrong balances.
   const excludedCount = expenseDtos.filter((e) => e.convertedCents === null).length;
