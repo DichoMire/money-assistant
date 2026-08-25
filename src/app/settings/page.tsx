@@ -1,20 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { AccountSettings } from "@/components/AccountSettings";
 import { AppHeader } from "@/components/AppHeader";
-import { getDb } from "@/db";
-import { users } from "@/db/schema";
 import { getT } from "@/lib/i18n-server";
 
 export default async function SettingsPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
-  const db = await getDb();
-  const rows = await db.select().from(users).where(eq(users.id, session.user.id));
-  const me = rows[0];
-  if (!me) redirect("/login");
   const t = await getT();
 
   return (
@@ -25,7 +18,7 @@ export default async function SettingsPage() {
           {t("account.back")}
         </Link>
         <h1 className="mt-2 mb-6 text-2xl font-bold text-gray-800">{t("account.title")}</h1>
-        <AccountSettings showBgnEquivalent={me.showBgnEquivalent} />
+        <AccountSettings />
       </main>
     </div>
   );

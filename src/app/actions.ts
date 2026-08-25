@@ -53,7 +53,7 @@ import type {
 /**
  * Refuse to store a transaction whose currency can't currently convert to the
  * group currency — fail loudly at entry instead of silently corrupting the
- * balances at display time. Fixed euro legs (BGN/HRK <-> EUR) always convert
+ * balances at display time. Fixed euro legs (HRK <-> EUR) always convert
  * and need no stored rates.
  */
 async function currencyConversionError(

@@ -6,7 +6,6 @@ import { deleteExpense } from "@/app/actions";
 import { formatDate } from "@/lib/format";
 import { countWord, type TKey } from "@/lib/i18n";
 import { formatCents } from "@/lib/money";
-import { eurToBgnCents } from "@/lib/rates";
 import type { ExpenseDto, GroupDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
 import { useConfirm } from "./ConfirmModal";
@@ -119,11 +118,6 @@ export function ExpenseDetailModal({
             <p className="text-xl font-bold text-gray-800">
               {money(expense.amountCents, expense.currency)}
             </p>
-            {group.showBgnEquivalent && expense.currency === "EUR" && (
-              <p className="text-xs text-gray-400">
-                ≈ {money(eurToBgnCents(expense.amountCents), "BGN")}
-              </p>
-            )}
             {foreign &&
               (expense.convertedCents !== null ? (
                 <p className="text-xs text-gray-400">

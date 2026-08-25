@@ -11,11 +11,11 @@ import {
 } from "../src/lib/simplify";
 import {
   convertCents,
-  eurToBgnCents,
   findRateRow,
   isFixedLegPair,
   ratesAreStale,
   roundHalfUp,
+  type FxRow,
 } from "../src/lib/rates";
 
 function shares(result: ReturnType<typeof computeShares>) {
@@ -196,41 +196,40 @@ assert.deepEqual(
 );
 
 // ---- rates ----
-const rows = [
-  { date: "2026-08-01", rates: { USD: 1.1, BGN: 1.95583 } },
-  { date: "2026-08-04", rates: { USD: 1.2, BGN: 1.95583 } },
+const rows: FxRow[] = [
+  { date: "2026-08-01", rates: { USD: 1.1, HRK: 7.53 } },
+  { date: "2026-08-04", rates: { USD: 1.2 } },
 ];
 assert.equal(findRateRow(rows, "2026-08-03")!.date, "2026-08-01");
 assert.equal(findRateRow(rows, "2026-07-20")!.date, "2026-08-01"); // earliest available
 assert.equal(findRateRow(rows, "2026-08-10")!.date, "2026-08-04");
 assert.equal(convertCents(1000, "USD", "EUR", rows[0]), 909);
-assert.equal(convertCents(1000, "USD", "BGN", rows[0]), 1778);
+assert.equal(convertCents(1000, "USD", "HRK", rows[0]), 6849); // via fixed leg: 909 EUR cents × 7.5345
 assert.equal(convertCents(1000, "EUR", "USD", rows[1]), 1200);
 assert.equal(convertCents(1000, "USD", "USD", null), 1000);
 assert.equal(ratesAreStale("2026-08-15", "2026-08-23"), true);
 assert.equal(ratesAreStale("2026-08-16", "2026-08-23"), false);
 assert.equal(ratesAreStale(null, "2026-08-23"), true);
 
-// ---- fixed euro legs (post-changeover BGN) ----
+// ---- fixed euro legs (post-changeover HRK) ----
 assert.equal(roundHalfUp(0.5), 1);
 assert.equal(roundHalfUp(-0.5), -1); // half away from zero, unlike Math.round
 assert.equal(roundHalfUp(2.4), 2);
-// BGN <-> EUR needs NO rate row at all (fixed legal rate 1.95583).
-assert.equal(convertCents(19558, "BGN", "EUR", null), 10000); // 195.58 лв -> 100.00 €
-assert.equal(convertCents(100, "BGN", "EUR", null), 51); // 0.5113 -> half-up
-assert.equal(convertCents(10000, "EUR", "BGN", null), 19558);
-assert.equal(convertCents(-100, "BGN", "EUR", null), -51); // symmetric negatives
-// Round-trip stays within a stotinka.
-assert.ok(Math.abs(convertCents(convertCents(1234, "BGN", "EUR", null)!, "EUR", "BGN", null)! - 1234) <= 1);
+// HRK <-> EUR needs NO rate row at all (fixed legal rate 7.5345).
+assert.equal(convertCents(75345, "HRK", "EUR", null), 10000); // 753.45 kn -> 100.00 €
+assert.equal(convertCents(100, "HRK", "EUR", null), 13); // 13.27 -> half-up
+assert.equal(convertCents(10000, "EUR", "HRK", null), 75345);
+assert.equal(convertCents(-100, "HRK", "EUR", null), -13); // symmetric negatives
+// Round-trip drift stays within half a lipa unit (rate ≈ 7.53 -> ±4 cents).
+assert.ok(Math.abs(convertCents(convertCents(1234, "HRK", "EUR", null)!, "EUR", "HRK", null)! - 1234) <= 4);
 // The fixed rate wins over any stored (4-decimal ECB reference) row value.
-assert.equal(convertCents(195583, "BGN", "EUR", rows[0]), 100000);
-// Mixed pair chains the fixed leg first: BGN -> EUR (fixed) -> USD (row).
-assert.equal(convertCents(19558, "BGN", "USD", rows[0]), Math.round(10000 * 1.1));
-assert.equal(convertCents(1000, "BGN", "USD", null), null); // floating leg missing
-assert.equal(eurToBgnCents(2000), 3912); // 20.00 € ≈ 39.12 лв
-assert.equal(isFixedLegPair("BGN", "EUR"), true);
-assert.equal(isFixedLegPair("EUR", "BGN"), true);
-assert.equal(isFixedLegPair("BGN", "USD"), false);
+assert.equal(convertCents(753450, "HRK", "EUR", rows[0]), 100000);
+// Mixed pair chains the fixed leg first: HRK -> EUR (fixed) -> USD (row).
+assert.equal(convertCents(75345, "HRK", "USD", rows[0]), Math.round(10000 * 1.1));
+assert.equal(convertCents(1000, "HRK", "USD", null), null); // floating leg missing
+assert.equal(isFixedLegPair("HRK", "EUR"), true);
+assert.equal(isFixedLegPair("EUR", "HRK"), true);
+assert.equal(isFixedLegPair("HRK", "USD"), false);
 assert.equal(isFixedLegPair("USD", "USD"), true);
 
 console.log("All math tests passed.");

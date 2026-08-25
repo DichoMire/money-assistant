@@ -15,7 +15,7 @@ async function main() {
   const [ben] = await db.insert(aliases).values({ groupId: group.id, name: "Ben" }).returning();
   const [cara] = await db.insert(aliases).values({ groupId: group.id, name: "Cara" }).returning();
 
-  await db.insert(fxRates).values({ date: "2026-08-20", base: "EUR", rates: { USD: 1.1, BGN: 1.95583 } });
+  await db.insert(fxRates).values({ date: "2026-08-20", base: "EUR", rates: { USD: 1.1 } });
 
   // Anna paid $30, split equally three ways.
   const [e1] = await db
@@ -29,10 +29,10 @@ async function main() {
     { expenseId: e1.id, aliasId: cara.id, owedCents: 1000, splitValue: null },
   ]);
 
-  // Ben paid 11.00 BGN for Cara (foreign currency, needs conversion).
+  // Ben paid 11.00 HRK for Cara (fixed euro leg, then EUR -> USD via the row).
   const [e2] = await db
     .insert(expenses)
-    .values({ groupId: group.id, description: "Coffee", amountCents: 1100, currency: "BGN", date: "2026-08-22", splitMethod: "exact" })
+    .values({ groupId: group.id, description: "Coffee", amountCents: 1100, currency: "HRK", date: "2026-08-22", splitMethod: "exact" })
     .returning();
   await db.insert(expensePayers).values({ expenseId: e2.id, aliasId: ben.id, paidCents: 1100 });
   await db.insert(expenseShares).values({ expenseId: e2.id, aliasId: cara.id, owedCents: 1100, splitValue: 1100 });
@@ -46,10 +46,10 @@ async function main() {
   assert.ok(data);
   assert.equal(data.expenses.length, 2);
 
-  // BGN chains through its fixed euro leg with half-up rounding at the legal
-  // conversion boundary: BGN -> EUR (562), then EUR -> USD via the row (618).
-  const expectedConv = Math.round(Math.round(1100 / 1.95583) * 1.1); // 618
-  const coffee = data.expenses.find((e) => e.currency === "BGN")!;
+  // HRK chains through its fixed euro leg with half-up rounding at the legal
+  // conversion boundary: HRK -> EUR (146), then EUR -> USD via the row (161).
+  const expectedConv = Math.round(Math.round(1100 / 7.5345) * 1.1); // 161
+  const coffee = data.expenses.find((e) => e.currency === "HRK")!;
   assert.equal(coffee.convertedCents, expectedConv);
   assert.equal(coffee.rateDate, "2026-08-20");
 
@@ -67,7 +67,7 @@ async function main() {
     ].sort()
   );
 
-  // Nets: Anna +2000, Ben (618 - 1000) = -382, Cara -(1000 + 618) = -1618.
+  // Nets: Anna +2000, Ben (161 - 1000) = -839, Cara -(1000 + 161) = -1161.
   const simp = data.simplifiedDebts.map((d) => [d.fromAliasId, d.toAliasId, d.amountCents]);
   assert.deepEqual(
     simp.sort(),

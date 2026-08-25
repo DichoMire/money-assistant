@@ -51,7 +51,7 @@ export type ExpenseDto = {
 export type RatesInfo = {
   latestDate: string | null;
   stale: boolean;
-  /** True when some expense needs an ECB rate (fixed BGN/HRK legs don't). */
+  /** True when some expense needs an ECB rate (fixed euro legs don't). */
   needsConversion: boolean;
   /** True when some expense could not be converted at all (no rates stored). */
   missingRate: boolean;
@@ -79,8 +79,6 @@ export type GroupDto = {
   simplifyDebts: boolean;
   myRole: GroupRole;
   myUserId: string;
-  /** Viewer preference: informational "≈ лв." next to EUR amounts. */
-  showBgnEquivalent: boolean;
   members: GroupMemberDto[];
   aliases: AliasDto[];
   expenses: ExpenseDto[];

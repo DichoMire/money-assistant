@@ -27,7 +27,7 @@ async function main() {
   const today = new Date().toISOString().slice(0, 10);
   await db
     .insert(fxRates)
-    .values({ date: today, base: "EUR", rates: { USD: 1.1, BGN: 1.95583, GBP: 0.85 } })
+    .values({ date: today, base: "EUR", rates: { USD: 1.1, GBP: 0.85 } })
     .onConflictDoNothing();
 
   // Multi-payer dinner: Anna 40 + Ben 20, split equally three ways.
@@ -45,10 +45,10 @@ async function main() {
     { expenseId: dinner.id, aliasId: cara.id, owedCents: 2000, splitValue: null },
   ]);
 
-  // Foreign-currency coffee: Ben paid 11.00 BGN, all owed by Cara.
+  // Foreign-currency coffee: Ben paid £11.00, all owed by Cara.
   const [coffee] = await db
     .insert(expenses)
-    .values({ groupId: group.id, description: "Coffee", amountCents: 1100, currency: "BGN", date: today, splitMethod: "exact" })
+    .values({ groupId: group.id, description: "Coffee", amountCents: 1100, currency: "GBP", date: today, splitMethod: "exact" })
     .returning();
   await db.insert(expensePayers).values({ expenseId: coffee.id, aliasId: ben.id, paidCents: 1100 });
   await db.insert(expenseShares).values({ expenseId: coffee.id, aliasId: cara.id, owedCents: 1100, splitValue: 1100 });

@@ -202,7 +202,7 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
         .filter((s) => s.expenseId === e.id)
         .map((s) => ({ aliasId: s.aliasId, owedCents: s.owedCents, splitValue: s.splitValue })),
       convertedCents,
-      // Fixed-leg conversions (BGN <-> EUR) use no ECB rate, so no rate date.
+      // Fixed-leg conversions (e.g. HRK <-> EUR) use no ECB rate, so no rate date.
       rateDate: usesEcbRate ? (rateRow?.date ?? null) : null,
       scanId: scanByExpense.get(e.id) ?? null,
     };
@@ -225,8 +225,8 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
 
   const net = netBalances(transactions);
   const latestDate = fxRows.at(-1)?.date ?? null;
-  // Only floating pairs need ECB rates; a EUR group full of BGN history (the
-  // common post-changeover case) must not trigger the stale-rates warning.
+  // Only floating pairs need ECB rates; fixed euro legs must not trigger the
+  // stale-rates warning.
   const needsConversion = expenseDtos.some(
     (e) => e.currency !== group.currency && !isFixedLegPair(e.currency, group.currency)
   );
@@ -253,7 +253,6 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
     simplifyDebts: group.simplifyDebts,
     myRole: membership.role,
     myUserId: userId,
-    showBgnEquivalent: memberUsers.find((u) => u.id === userId)?.showBgnEquivalent ?? false,
     members,
     aliases: aliasRows.map((a) => ({ id: a.id, name: a.name, userId: a.userId })),
     expenses: expenseDtos,

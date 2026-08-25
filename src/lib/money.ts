@@ -29,7 +29,7 @@ export function formatCents(cents: number, currency: string, locale: Locale = "e
 
 const symbolCache = new Map<string, string>();
 
-/** Narrow symbol for a currency ("€", "$", "лв."), falling back to the code. */
+/** Narrow symbol for a currency ("€", "$"), falling back to the code. */
 export function currencySymbol(currency: string, locale: Locale = "en"): string {
   const key = `sym:${locale}:${currency}`;
   const cached = symbolCache.get(key);

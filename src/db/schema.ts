@@ -35,8 +35,6 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   name: text("name"),
   image: text("image"),
-  // Show an informational "≈ лв." next to EUR amounts (fixed 1.95583 rate).
-  showBgnEquivalent: boolean("show_bgn_equivalent").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

@@ -73,7 +73,7 @@ Rules:
 - Each printed product becomes EXACTLY ONE entry in "items" - when a quantity line accompanies a product, output one combined item, never two.
 - NEVER include subtotal, total ("ОБЩА СУМА", "TOTAL"), payment ("ПЛАТЕНО", card/cash), change, tax-summary or savings ("ТИ СПЕСТИ") lines as items - they belong in the dedicated fields or nowhere.
 - "quantity" may be fractional for weighted items (e.g. 0.734 for 0.734 kg). For "3 x" lines set quantity 3 and the per-unit price in "unit_price_minor"; "total_price_minor" is always the printed line total.
-- "currency": infer from symbols or text on the receipt (e.g. "ЕВРО" means EUR, "лв" means BGN); if unclear, use "${groupCurrency}".
+- "currency": infer from symbols or text on the receipt (e.g. "ЕВРО" or "€" means EUR). Bulgarian receipts may print an informational lev total ("лв") next to the euro one - ignore "лв" amounts and extract the euro values. If unclear, use "${groupCurrency}".
 - The identity sum(items.total_price_minor) + tax_minor + tip_minor - discounts_minor = total_minor must hold. If it does not, re-check your line extraction. In many countries tax is already included in item prices - then tax_minor is 0.
 - "confidence": your overall confidence in this extraction, 0 to 1.
 - If the image is not a purchase receipt at all, output exactly {"error":"not_a_receipt"}.`;

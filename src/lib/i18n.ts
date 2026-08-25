@@ -462,8 +462,6 @@ export const en = {
   "header.settings": "Settings",
   "account.title": "Account settings",
   "account.language": "Language",
-  "account.showBgn": "Show leva equivalent next to euro amounts",
-  "account.showBgnHint": "Informational only, at the fixed rate 1 € = 1.95583 лв.",
   "account.back": "← Back to groups",
 
   // ---- unconvertible-expense warning ----
@@ -939,8 +937,6 @@ const bg: Record<TKey, string> = {
   "header.settings": "Настройки",
   "account.title": "Настройки на профила",
   "account.language": "Език",
-  "account.showBgn": "Показвай равностойност в лева до сумите в евро",
-  "account.showBgnHint": "Само за информация, по фиксирания курс 1 € = 1,95583 лв.",
   "account.back": "← Обратно към групите",
 
   // ---- unconvertible-expense warning ----

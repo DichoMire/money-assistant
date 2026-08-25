@@ -199,9 +199,9 @@ correctly via the fixed leg, which makes those stages less urgent than the RFC a
 
 - **Rate-gap repair + `approxRate` flag** (RFC 01 stage 6 remainder): missed cron days
   are still permanent gaps; pre-history expenses silently use the earliest row.
-- **BGN retirement + BGN-group migration** (RFC 01 stages 3–4): BGN is still offered in
-  currency pickers; BGN-based groups still exist as such (balances are now *correct*,
-  via the fixed leg, but EUR is the sensible base going forward).
+- ~~**BGN retirement + BGN-group migration** (RFC 01 stages 3–4)~~ **Done 2026-08-25** —
+  see the addendum below; by owner decision the removal went *further* than the RFC
+  (stored BGN data rewritten to EUR, superseding RFC 01 §6).
 - **Structured audit-log fragments** (RFC 02 stage 3): diffs are still stored as English
   strings; new entries keep accruing in en formatting.
 - **Transactions for receipt actions** (`persistScanEdits`, convert/delete paths).
@@ -217,3 +217,52 @@ Each affected RFC now carries a status line pointing here: RFC 01 (stages 1–2 
 partial ✅), RFC 02 (stages 1, 2, 4 ✅), RFC 04 (stage 1 implemented then **reverted** —
 fully outstanding), RFC 05 (manifest/icons ✅), RFC 06 (stages 1/3 subsets ✅), RFC 07
 (stage 1 subset ✅), RFC 11 ((a) core ✅).
+
+---
+
+# Addendum — BGN fully removed (2026-08-25)
+
+Owner decision: remove BGN from the application entirely, **including** a one-time
+rewrite of stored BGN data to EUR — explicitly superseding RFC 01 §6's "never rewrite
+stored amounts" stance and closing RFC 01 stages 3–4 (see the struck-through
+outstanding item above).
+
+- **`drizzle/0007_remove-bgn.sql`** — combined data + schema migration, idempotent
+  (a re-run finds no BGN rows and changes nothing):
+  - Expenses, payers, and shares converted at the fixed rate 1.95583 (half away from
+    zero per amount); per-expense rounding drift settled on the largest payer/share row
+    so `sum(paid) = sum(owed) = amount` stays exact. `split_value` converted for the
+    cents-denominated methods (`exact` mirrors the converted `owed_cents`;
+    `adjustment` converted directly); percent/shares values untouched.
+  - Receipt scans, items, and exact-mode item shares converted the same way;
+    `reconciles` recomputed afterwards (per-field rounding can shift the identity by
+    a cent).
+  - BGN groups flipped to EUR with a `group.currency_changed` audit entry
+    (actor "System") per group; `fx_rates` rows scrubbed of stale `BGN` keys;
+    `users.show_bgn_equivalent` dropped (`IF EXISTS`, so the file re-runs cleanly).
+- **`scripts/migrate-bgn-to-eur.ts`** — guarded runner for the hosted DB: dry-run by
+  default (prints BGN row counts), `--yes` applies the 0007 file inside one
+  transaction. PGlite applies 0007 automatically on next start; **Neon needs this
+  script (or the SQL applied manually) — `npm run db:push` syncs schema only and
+  never runs the data statements.**
+- **Code removals:** `BGN` out of `CURRENCIES` (all pickers + validation follow);
+  `FIXED_EUR_RATES` now HRK-only; `eurToBgnCents` deleted; the leva-equivalent
+  account setting (§9 above) removed end-to-end — `src/app/user-actions.ts` deleted,
+  `AccountSettings` toggle gone, `GroupDto.showBgnEquivalent` gone,
+  `account.showBgn`/`account.showBgnHint` i18n keys gone, "≈ лв." displays removed
+  from `BalancesPanel` and `ExpenseDetailModal`.
+- **Receipt prompt:** the `"лв" means BGN` hint became "ignore лв amounts, extract the
+  euro values" (2026 Bulgarian receipts dual-print an informational lev total).
+- **Tests:** fixed-leg coverage in `math.test.ts` and `db-smoke.ts` moved from BGN to
+  HRK (round-trip tolerance widened to ±4 cents for the larger rate); `seed-dev.ts`'s
+  foreign-currency expense is now GBP. The migration itself was verified against an
+  in-memory PGlite (conversion values, drift correction, `reconciles` recompute,
+  audit entries, idempotency) via a temporary script, since removed.
+- **Left alone by design:** historical activity-log entries keep their original BGN
+  amounts and wording — the audit trail is a denormalized record of what actually
+  happened and is not rewritten.
+
+Verification: `npm run test:math` ✅ · `npm run test:receipt` ✅ ·
+`npm run test:receipt-db` ✅ · `npx tsx scripts/db-smoke.ts` ✅ (fresh PGlite,
+migrations 0000→0007) · `npm run lint` ✅ · `npx tsc --noEmit` ✅ ·
+`npm run build` ✅.

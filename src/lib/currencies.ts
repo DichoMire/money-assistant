@@ -1,6 +1,6 @@
 /** Currencies covered by the ECB daily reference rates (Frankfurter API). */
 export const CURRENCIES = [
-  "USD", "EUR", "GBP", "BGN", "AUD", "BRL", "CAD", "CHF", "CNY", "CZK",
+  "USD", "EUR", "GBP", "AUD", "BRL", "CAD", "CHF", "CNY", "CZK",
   "DKK", "HKD", "HUF", "IDR", "ILS", "INR", "ISK", "JPY", "KRW", "MXN",
   "MYR", "NOK", "NZD", "PHP", "PLN", "RON", "SEK", "SGD", "THB", "TRY",
   "ZAR",

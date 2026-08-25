@@ -1,7 +1,6 @@
 "use client";
 
 import { formatCents } from "@/lib/money";
-import { eurToBgnCents } from "@/lib/rates";
 import { ROUNDING_WRITE_OFF_CENTS, type Debt } from "@/lib/simplify";
 import type { GroupDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
@@ -26,13 +25,6 @@ export function BalancesPanel({
   const name = (id: string) => names.get(id) ?? "?";
   const debts = simplify ? data.simplifiedDebts : data.pairwiseDebts;
   const money = (cents: number) => formatCents(cents, data.currency, locale);
-  // Informational leva equivalent (account setting), EUR amounts only.
-  const lv = (cents: number) =>
-    data.showBgnEquivalent && data.currency === "EUR" ? (
-      <span className="ml-1 text-xs font-normal text-gray-400">
-        ≈ {formatCents(eurToBgnCents(cents), "BGN", locale)}
-      </span>
-    ) : null;
 
   // Chips are derived from the payment list on display, so they always agree
   // with it exactly — including after tiny rounding write-offs.
@@ -106,7 +98,6 @@ export function BalancesPanel({
                 <span className={`font-bold ${b.net > 0 ? "amount-pos" : "amount-neg"}`}>
                   {b.net > 0 ? t("balances.getsBack") : t("balances.owes")}{" "}
                   {money(Math.abs(b.net))}
-                  {lv(Math.abs(b.net))}
                 </span>
               )}
             </li>
@@ -143,7 +134,6 @@ export function BalancesPanel({
                 </span>
                 <span className="font-bold text-gray-800">
                   {money(d.amountCents)}
-                  {lv(d.amountCents)}
                 </span>
                 <button
                   type="button"

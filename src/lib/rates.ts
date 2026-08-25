@@ -6,12 +6,10 @@ export type FxRow = { date: string; rates: Record<string, number> };
  * Legally fixed conversion rates of currencies replaced by the euro, in units
  * of the legacy currency per 1 EUR. These are the full-precision rates set by
  * EU Council regulation — never rounded, never inverted (Reg. 1103/97 Art. 4/5)
- * — and they take precedence over any stored ECB reference row (the ECB
- * reference for BGN was 4-decimal 1.9558, which must not be used to convert).
- * BGN fixed 2026-01-01 (Council Reg. (EU) 2025/1408); HRK fixed 2023-01-01.
+ * — and they take precedence over any stored ECB reference row.
+ * HRK fixed 2023-01-01.
  */
 export const FIXED_EUR_RATES: Record<string, number> = {
-  BGN: 1.95583,
   HRK: 7.5345,
 };
 
@@ -45,16 +43,11 @@ export function findRateRow(rows: FxRow[], dateStr: string): FxRow | null {
   return candidate ?? rows[0];
 }
 
-/** EUR cents -> BGN stotinki at the fixed rate (informational display only). */
-export function eurToBgnCents(eurCents: number): number {
-  return roundHalfUp(eurCents * FIXED_EUR_RATES.BGN);
-}
-
 /**
  * Convert integer cents between currencies. Currencies replaced by the euro
- * (BGN, HRK) convert through their fixed legal rate and need no rate row at
+ * (HRK) convert through their fixed legal rate and need no rate row at
  * all; anything else resolves through the EUR-based ECB row. Mixed pairs
- * (e.g. BGN -> USD) chain the fixed leg first, rounding to integer cents at
+ * (e.g. HRK -> USD) chain the fixed leg first, rounding to integer cents at
  * the legal conversion boundary. Returns null only when a floating leg has no
  * available rate.
  */
