@@ -21,7 +21,7 @@ export function LanguageToggle() {
 
   return (
     <div
-      className={`flex overflow-hidden rounded-lg border border-gray-300 text-xs font-bold ${pending ? "opacity-60" : ""}`}
+      className={`flex shrink-0 overflow-hidden rounded-lg border border-gray-300 text-xs font-bold ${pending ? "opacity-60" : ""}`}
       role="group"
       aria-label="Language / Език"
     >
@@ -32,7 +32,7 @@ export function LanguageToggle() {
           lang={l}
           onClick={() => switchTo(l)}
           aria-pressed={locale === l}
-          className={`cursor-pointer px-2.5 py-1.5 transition-colors ${
+          className={`cursor-pointer px-2 py-1.5 transition-colors sm:px-2.5 ${
             locale === l ? "text-white" : "bg-white text-gray-500 hover:bg-gray-50"
           }`}
           style={locale === l ? { background: "var(--brand)" } : undefined}
