@@ -34,6 +34,16 @@ export type ConvertResult =
   | { ok: true; persons: PersonTotal[]; grandTotalCents: number }
   | { ok: false; error: string };
 
+/**
+ * Resolve a percent-mode discount (basis points of the items subtotal) into
+ * cents. Shared by the client preview and the server save path so the stored
+ * discountsCents can never drift from the stored percentage. Clamped at 0 for
+ * the degenerate all-negative-items case.
+ */
+export function resolveDiscountCents(itemsSumCents: number, percentBp: number): number {
+  return Math.max(0, Math.round((itemsSumCents * percentBp) / 10000));
+}
+
 export function computePersonTotals(
   items: ConvertItem[],
   pool: { taxCents: number; tipCents: number; discountsCents: number },

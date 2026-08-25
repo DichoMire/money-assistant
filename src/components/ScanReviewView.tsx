@@ -6,8 +6,13 @@ import { useState } from "react";
 import { convertScan, saveScan } from "@/app/receipt-actions";
 import { CURRENCIES } from "@/lib/currencies";
 import { countWord } from "@/lib/i18n";
-import { formatCents, parseAmount } from "@/lib/money";
-import { computePersonTotals, type AssignMode, type ConvertItem } from "@/lib/receipt-convert";
+import { currencySymbol, formatCents, parseAmount, parseNumber } from "@/lib/money";
+import {
+  computePersonTotals,
+  resolveDiscountCents,
+  type AssignMode,
+  type ConvertItem,
+} from "@/lib/receipt-convert";
 import type { GroupDto, ScanDetailDto, ScanEditInput, ScanItemDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
 import { ConfirmModal, useConfirm } from "./ConfirmModal";
@@ -80,6 +85,15 @@ const toggleSign = (s: string) => {
 /** Parse an optional money field ("" counts as 0); null = invalid input. */
 const parseOptMoney = (s: string): number | null => (s.trim() === "" ? 0 : parseAmount(s));
 
+/** Parse an optional percent field into basis points ("10.5" → 1050, "" → 0); null = invalid. */
+const parseOptPercentBp = (s: string): number | null => {
+  if (s.trim() === "") return 0;
+  const value = parseNumber(s);
+  return value === null ? null : Math.round(value * 100);
+};
+
+const bpToOptStr = (bp: number) => (bp === 0 ? "" : String(bp / 100));
+
 /* Up to this many active participants each item gets inline toggle chips;
    beyond it, a compact button opening the assign sheet. */
 const CHIP_LIMIT = 5;
@@ -99,7 +113,14 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
   const [currency, setCurrency] = useState(scan.currency);
   const [taxStr, setTaxStr] = useState(centsToOptStr(scan.taxCents));
   const [tipStr, setTipStr] = useState(centsToOptStr(scan.tipCents));
-  const [discountStr, setDiscountStr] = useState(centsToOptStr(scan.discountsCents));
+  const [discountMode, setDiscountMode] = useState<"flat" | "percent">(
+    scan.discountPercentBp !== null ? "percent" : "flat"
+  );
+  const [discountStr, setDiscountStr] = useState(
+    scan.discountPercentBp !== null
+      ? bpToOptStr(scan.discountPercentBp)
+      : centsToOptStr(scan.discountsCents)
+  );
   const [totalStr, setTotalStr] = useState(centsToStr(scan.totalCents));
   const [payerAliasId, setPayerAliasId] = useState(myAliasId ?? aliases[0]?.id ?? "");
   const [participantIds, setParticipantIds] = useState<string[]>(allAliasIds);
@@ -113,7 +134,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
   const useChips = activeAliases.length <= CHIP_LIMIT;
 
   const serialize = (its: EditableItem[]) =>
-    JSON.stringify({ merchantStr, dateStr, currency, taxStr, tipStr, discountStr, totalStr, its });
+    JSON.stringify({ merchantStr, dateStr, currency, taxStr, tipStr, discountMode, discountStr, totalStr, its });
   const [snapshot, setSnapshot] = useState<string>(() => serialize(scan.items.map((it) => fromDto(it, allAliasIds))));
   const dirty = serialize(items) !== snapshot;
 
@@ -178,8 +199,15 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
 
   const taxCents = parseOptMoney(taxStr);
   const tipCents = parseOptMoney(tipStr);
-  const discountsCents = parseOptMoney(discountStr);
   const totalCents = parseAmount(totalStr);
+  /* The discount is either a flat amount or a percentage of the items
+     subtotal; percent mode resolves to cents below, once itemsSum is known. */
+  const discountPercentBp = discountMode === "percent" ? parseOptPercentBp(discountStr) : null;
+  const flatDiscountCents = discountMode === "flat" ? parseOptMoney(discountStr) : null;
+  const discountInvalid =
+    discountMode === "percent"
+      ? discountPercentBp === null || discountPercentBp < 0 || discountPercentBp > 10000
+      : flatDiscountCents === null || flatDiscountCents < 0;
 
   let draftError: string | null = null;
   if (items.length === 0) draftError = t("scanReview.keepOneItem");
@@ -187,7 +215,8 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
   else if (totalCents === null) draftError = t("scanReview.enterValidTotal");
   else if (taxCents === null || taxCents < 0) draftError = t("scanReview.invalidTax");
   else if (tipCents === null || tipCents < 0) draftError = t("scanReview.invalidTip");
-  else if (discountsCents === null || discountsCents < 0) draftError = t("scanReview.invalidDiscount");
+  else if (discountInvalid)
+    draftError = t(discountMode === "percent" ? "scanReview.invalidDiscountPercent" : "scanReview.invalidDiscount");
   else {
     for (const it of items) {
       const label = it.name.trim() || t("scanReview.anItem");
@@ -205,6 +234,11 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
   const itemsSum = draftError
     ? 0
     : items.reduce((sum, it) => sum + (parseAmount(it.totalStr) ?? 0), 0);
+  const discountsCents = discountInvalid
+    ? null
+    : discountMode === "percent"
+      ? resolveDiscountCents(itemsSum, discountPercentBp!)
+      : flatDiscountCents;
   const computedCents = itemsSum + (taxCents ?? 0) + (tipCents ?? 0) - (discountsCents ?? 0);
   const mismatch = !draftError && totalCents !== null && computedCents !== totalCents;
 
@@ -247,6 +281,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
     taxCents: taxCents!,
     tipCents: tipCents!,
     discountsCents: discountsCents!,
+    discountPercentBp: discountMode === "percent" ? discountPercentBp! : null,
     totalCents: totalCents!,
     items: items.map((it, position) => ({
       position,
@@ -371,8 +406,26 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
             </div>
             <div className="w-24 flex-1 max-sm:w-[calc(50%-0.25rem)] max-sm:flex-none">
               <label className="label" htmlFor="scan-disc">{t("scanReview.discount")}</label>
-              <input id="scan-disc" className="input" placeholder="0.00" inputMode="decimal"
-                value={discountStr} onChange={(e) => setDiscountStr(e.target.value)} />
+              <div className="flex">
+                {/* Same attached-button pattern as the item ± toggle: the sign
+                    IS the mode — currency symbol for flat, % for percentage. */}
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  aria-label={t("scanReview.discountModeAria")}
+                  title={t("scanReview.discountModeTitle")}
+                  className="cursor-pointer rounded-l-lg border border-r-0 border-gray-300 bg-gray-50 px-2 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                  onClick={() => setDiscountMode((m) => (m === "flat" ? "percent" : "flat"))}
+                >
+                  {discountMode === "percent" ? "%" : currencySymbol(currency, t.locale)}
+                </button>
+                <input id="scan-disc" className="input min-w-0 flex-1 !rounded-l-none"
+                  placeholder={discountMode === "percent" ? "0" : "0.00"} inputMode="decimal"
+                  value={discountStr} onChange={(e) => setDiscountStr(e.target.value)} />
+              </div>
+              {discountMode === "percent" && !draftError && discountsCents !== null && discountsCents > 0 && (
+                <p className="mt-0.5 text-[11px] text-gray-400">− {money(discountsCents, currency)}</p>
+              )}
             </div>
             <div className="w-28 flex-1 max-sm:w-[calc(50%-0.25rem)] max-sm:flex-none">
               <label className="label" htmlFor="scan-total">{t("scanReview.receiptTotal")}</label>

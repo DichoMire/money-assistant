@@ -165,6 +165,9 @@ export const activityLog = pgTable("activity_log", {
 // treats a null expenseId as "draft" again), so a scan can be re-converted
 // after its expense is deleted. discountsCents is the receipt-level discount
 // as a positive magnitude; line-level discounts are negative receipt_items.
+// A non-null discountPercentBp means the discount was entered as a percentage
+// of the items subtotal (basis points, 1050 = 10.5%); discountsCents then
+// holds the resolved amount, recomputed on every save.
 export const receiptScans = pgTable(
   "receipt_scans",
   {
@@ -181,6 +184,7 @@ export const receiptScans = pgTable(
     taxCents: integer("tax_cents").notNull().default(0),
     tipCents: integer("tip_cents").notNull().default(0),
     discountsCents: integer("discounts_cents").notNull().default(0),
+    discountPercentBp: integer("discount_percent_bp"),
     totalCents: integer("total_cents").notNull(),
     confidence: doublePrecision("confidence"),
     reconciles: boolean("reconciles").notNull().default(false),

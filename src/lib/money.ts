@@ -27,6 +27,28 @@ export function formatCents(cents: number, currency: string, locale: Locale = "e
   }
 }
 
+const symbolCache = new Map<string, string>();
+
+/** Narrow symbol for a currency ("€", "$", "лв."), falling back to the code. */
+export function currencySymbol(currency: string, locale: Locale = "en"): string {
+  const key = `sym:${locale}:${currency}`;
+  const cached = symbolCache.get(key);
+  if (cached) return cached;
+  let symbol = currency;
+  try {
+    const fmt = new Intl.NumberFormat(BCP47[locale] ?? "en-US", {
+      style: "currency",
+      currency,
+      currencyDisplay: "narrowSymbol",
+    });
+    symbol = fmt.formatToParts(0).find((p) => p.type === "currency")?.value ?? currency;
+  } catch {
+    /* unknown code — keep the code itself */
+  }
+  symbolCache.set(key, symbol);
+  return symbol;
+}
+
 // Spaces users type as thousands separators. JS \s already matches NBSP
 // (U+00A0) and narrow NBSP (U+202F), which bg-BG formatting itself produces,
 // so pasted amounts round-trip.

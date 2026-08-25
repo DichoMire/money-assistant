@@ -146,6 +146,12 @@ export type ScanDetailDto = {
   tipCents: number;
   /** Receipt-level discount as a positive magnitude. */
   discountsCents: number;
+  /**
+   * Non-null when the discount was entered as a percentage of the items
+   * subtotal (basis points, 1050 = 10.5%); discountsCents holds the resolved
+   * amount either way.
+   */
+  discountPercentBp: number | null;
   totalCents: number;
   confidence: number | null;
   reconciles: boolean;
@@ -178,6 +184,8 @@ export type ScanEditInput = {
   taxCents: number;
   tipCents: number;
   discountsCents: number;
+  /** See ScanDetailDto — non-null switches the discount to percent mode. */
+  discountPercentBp: number | null;
   totalCents: number;
   items: ScanItemInput[];
 };

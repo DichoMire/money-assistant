@@ -1,0 +1,1 @@
+ALTER TABLE "receipt_scans" ADD COLUMN "discount_percent_bp" integer;

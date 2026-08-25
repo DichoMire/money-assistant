@@ -20,11 +20,16 @@ import {
  */
 
 const API_URL = "https://openrouter.ai/api/v1/chat/completions";
-const DEFAULT_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free";
+/* Free vision endpoints also disappear without notice (nemotron-nano-12b-v2-vl
+   started 404ing), so this ladder needs the occasional availability re-check
+   against https://openrouter.ai/api/v1/models. Only one Gemma variant is
+   listed: both share one upstream rate-limit pool, so the second adds timeout
+   risk without independence. */
+const DEFAULT_MODEL = "minimax/minimax-m3:free";
 const DEFAULT_FALLBACK_MODELS = [
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
   "dots-studio/dots-3-note-preview:free",
   "google/gemma-4-26b-a4b-it:free",
-  "google/gemma-4-31b-it:free",
 ];
 const ATTEMPT_TIMEOUT_MS = 35_000;
 // Stop walking the ladder past this point so the worst case (every model

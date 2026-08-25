@@ -19,6 +19,7 @@ import {
   ASSIGN_MODES,
   buildExpenseInput,
   computePersonTotals,
+  resolveDiscountCents,
   type ConvertItem,
 } from "@/lib/receipt-convert";
 import { parseReceiptImage } from "@/lib/receipt-parse";
@@ -145,7 +146,14 @@ async function persistScanEdits(
   user: SessionUser,
   input: ScanEditInput
 ): Promise<
-  | { ok: true; scan: ScanRow; items: ScanItemInput[]; aliasNames: Map<string, string> }
+  | {
+      ok: true;
+      scan: ScanRow;
+      items: ScanItemInput[];
+      aliasNames: Map<string, string>;
+      /** Percent-mode discounts are resolved server-side; use this, not input.discountsCents. */
+      discountsCents: number;
+    }
   | { ok: false; error: string }
 > {
   const t = await getT();
@@ -164,6 +172,14 @@ async function persistScanEdits(
     if (!Number.isInteger(value) || value < 0) {
       return { ok: false, error: t(errorKey) };
     }
+  }
+  if (
+    input.discountPercentBp !== null &&
+    (!Number.isInteger(input.discountPercentBp) ||
+      input.discountPercentBp < 0 ||
+      input.discountPercentBp > 10000)
+  ) {
+    return { ok: false, error: t("scanReview.invalidDiscountPercent") };
   }
   if (!Number.isInteger(input.totalCents)) return { ok: false, error: t("errors.invalidTotal") };
   if (input.items.length === 0) return { ok: false, error: t("scanReview.keepOneItem") };
@@ -229,6 +245,14 @@ async function persistScanEdits(
     });
   }
 
+  // A percent-mode discount resolves against the items subtotal here, not on
+  // the client, so the stored cents can never drift from the stored percent.
+  const itemsSum = items.reduce((sum, item) => sum + item.totalCents, 0);
+  const discountsCents =
+    input.discountPercentBp !== null
+      ? resolveDiscountCents(itemsSum, input.discountPercentBp)
+      : input.discountsCents;
+
   await db.delete(receiptItems).where(eq(receiptItems.scanId, scan.id));
   const inserted = await db
     .insert(receiptItems)
@@ -260,15 +284,16 @@ async function persistScanEdits(
       currency: input.currency,
       taxCents: input.taxCents,
       tipCents: input.tipCents,
-      discountsCents: input.discountsCents,
+      discountsCents,
+      discountPercentBp: input.discountPercentBp,
       totalCents: input.totalCents,
-      reconciles: reconcile({ ...input, items }).ok,
+      reconciles: reconcile({ ...input, discountsCents, items }).ok,
       updatedAt: new Date(),
     })
     .where(eq(receiptScans.id, scan.id));
 
   revalidateScanPaths(scan.groupId, scan.id);
-  return { ok: true, scan, items, aliasNames };
+  return { ok: true, scan, items, aliasNames, discountsCents };
 }
 
 export async function saveScan(input: ScanEditInput): Promise<ActionResult> {
@@ -306,7 +331,7 @@ export async function convertScan(
     }));
     const totals = computePersonTotals(
       convertItems,
-      { taxCents: input.taxCents, tipCents: input.tipCents, discountsCents: input.discountsCents },
+      { taxCents: input.taxCents, tipCents: input.tipCents, discountsCents: persisted.discountsCents },
       input.currency,
       aliasNames,
       t

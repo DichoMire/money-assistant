@@ -101,6 +101,7 @@ export async function loadScanDetail(
     taxCents: scan.taxCents,
     tipCents: scan.tipCents,
     discountsCents: scan.discountsCents,
+    discountPercentBp: scan.discountPercentBp,
     totalCents: scan.totalCents,
     confidence: scan.confidence,
     reconciles: scan.reconciles,

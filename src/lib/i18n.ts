@@ -303,6 +303,8 @@ export const en = {
   "scanReview.tax": "Tax",
   "scanReview.tip": "Tip",
   "scanReview.discount": "Discount",
+  "scanReview.discountModeAria": "Toggle between amount and percentage discount",
+  "scanReview.discountModeTitle": "Switch between a fixed amount and a percentage of the items",
   "scanReview.receiptTotal": "Receipt total",
   "scanReview.foreignNote":
     "This receipt is in {currency}; balances are kept in {groupCurrency} using the exchange rate of the transaction date (or the nearest available).",
@@ -344,6 +346,7 @@ export const en = {
   "scanReview.invalidTax": "Invalid tax amount.",
   "scanReview.invalidTip": "Invalid tip amount.",
   "scanReview.invalidDiscount": "Invalid discount amount.",
+  "scanReview.invalidDiscountPercent": "The discount percentage must be between 0 and 100.",
   "scanReview.everyItemNeedsName": "Every item needs a name.",
   "scanReview.invalidPriceFor": 'Invalid price for "{name}".',
   "scanReview.invalidQtyFor": 'Invalid quantity for "{name}".',
@@ -777,6 +780,8 @@ const bg: Record<TKey, string> = {
   "scanReview.tax": "Данък",
   "scanReview.tip": "Бакшиш",
   "scanReview.discount": "Отстъпка",
+  "scanReview.discountModeAria": "Превключване между сума и процент отстъпка",
+  "scanReview.discountModeTitle": "Превключване между фиксирана сума и процент от артикулите",
   "scanReview.receiptTotal": "Обща сума",
   "scanReview.foreignNote":
     "Тази бележка е в {currency}; балансите се водят в {groupCurrency} по валутния курс от датата на транзакцията (или най-близкия наличен).",
@@ -818,6 +823,7 @@ const bg: Record<TKey, string> = {
   "scanReview.invalidTax": "Невалидна сума за данък.",
   "scanReview.invalidTip": "Невалидна сума за бакшиш.",
   "scanReview.invalidDiscount": "Невалидна сума за отстъпка.",
+  "scanReview.invalidDiscountPercent": "Процентът на отстъпката трябва да е между 0 и 100.",
   "scanReview.everyItemNeedsName": "Всеки артикул трябва да има име.",
   "scanReview.invalidPriceFor": "Невалидна цена за „{name}“.",
   "scanReview.invalidQtyFor": "Невалидно количество за „{name}“.",

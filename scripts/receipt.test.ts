@@ -10,6 +10,7 @@ import {
 import {
   buildExpenseInput,
   computePersonTotals,
+  resolveDiscountCents,
   type ConvertItem,
 } from "../src/lib/receipt-convert";
 import { computeShares } from "../src/lib/split";
@@ -188,6 +189,13 @@ assert.deepEqual(
 const off = reconcile({ items: [{ totalCents: 100 }], taxCents: 0, tipCents: 0, discountsCents: 0, totalCents: 90 });
 assert.equal(off.ok, false);
 assert.equal(off.diffCents, 10);
+
+// ---- resolveDiscountCents ----
+assert.equal(resolveDiscountCents(10000, 1000), 1000); // 10% of 100.00
+assert.equal(resolveDiscountCents(999, 1050), 105); // 10.5% of 9.99 rounds
+assert.equal(resolveDiscountCents(10000, 0), 0);
+assert.equal(resolveDiscountCents(0, 5000), 0);
+assert.equal(resolveDiscountCents(-500, 1000), 0); // all-negative items clamp at 0
 
 // ---- computePersonTotals ----
 const A = "a", B = "b", C = "c";
