@@ -12,6 +12,7 @@
     "test:reliability": "tsx scripts/reliability.test.ts",
     "test:account": "tsx scripts/account.test.ts",
     "test:epc": "tsx scripts/epc.test.ts",
+    "eval:receipts": "tsx scripts/receipt-eval.ts",
     "test:math": "tsx scripts/math.test.ts",
     "test:receipt": "tsx scripts/receipt.test.ts",
     "test:receipt-db": "tsx scripts/receipt-db.test.ts",

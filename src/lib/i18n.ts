@@ -321,6 +321,11 @@ export const en = {
   "scan.dropHere": "Drop a receipt photo here",
   "scan.clickToChoose": "or click to choose a file",
   "scan.llmNotice": "Photos are sent to {vendor} (an AI service) to read the receipt —",
+  "scan.retryHiRes": "Try again in higher quality",
+  "quota.counter": "{used} of {limit} scans this month",
+  "quota.exhausted": "You've used your {limit} free scans for this month.",
+  "quota.fairUseCap": "You've hit this month's fair-use cap of {limit} scans.",
+  "quota.resetsMonthly": "The counter resets on the 1st. You can still add the expense manually —",
   "scan.llmFirstUse":
     "The photo will be sent to {vendor} (an AI service) to read the items on the receipt. Photos are deleted after the receipt is converted. Continue?",
   "policies.published": "We've published our",
@@ -407,6 +412,10 @@ export const en = {
   "assign.exactAmounts": "Exact amounts",
   "assign.equalHint": "Selected people share this item equally.",
   "assign.exactHint": "Enter exactly how much of this item each person owes.",
+  "assign.byUnits": "By units",
+  "assign.unitsHint": "Assign the {quantity} pieces to people — e.g. who had how many.",
+  "assign.unitsOf": "{n} / {quantity}",
+  "assign.unitsCounter": "{assigned} of {quantity} pieces assigned",
   "assign.enterValidPrice": "Enter a valid item price first.",
 
   // ---- common ----
@@ -444,6 +453,7 @@ export const en = {
   "convert.invalidAssignment": '"{name}" has an invalid assignment.',
   "convert.enterAmountForAll": 'Enter an amount for everyone splitting "{name}".',
   "convert.itemAmountsSum": 'Amounts for "{name}" add up to {sum}, but the item costs {total}.',
+  "convert.unitsSum": 'Units for "{name}" add up to {sum}, but the item has {quantity} pieces.',
   "convert.addAssignOne": "Add and assign at least one item.",
   "convert.negativeShare": "{name}'s share would be negative — reassign the discount lines.",
   "convert.totalGreaterZero": "The receipt total must be greater than zero.",
@@ -921,6 +931,11 @@ const bg: Record<TKey, string> = {
   "scan.dropHere": "Пуснете снимка на бележка тук",
   "scan.clickToChoose": "или натиснете, за да изберете файл",
   "scan.llmNotice": "Снимките се изпращат към {vendor} (AI услуга), за да бъде разчетен бонът —",
+  "scan.retryHiRes": "Опитай с по-високо качество",
+  "quota.counter": "{used} от {limit} сканирания този месец",
+  "quota.exhausted": "Използвахте безплатните си {limit} сканирания за този месец.",
+  "quota.fairUseCap": "Достигнахте месечния лимит за разумно ползване от {limit} сканирания.",
+  "quota.resetsMonthly": "Броячът се нулира на 1-во число. Можете да добавите разхода и ръчно —",
   "scan.llmFirstUse":
     "Снимката ще бъде изпратена към {vendor} (AI услуга), за да бъдат разчетени артикулите от бона. Снимките се изтриват след осчетоводяване. Продължаване?",
   "policies.published": "Публикувахме",
@@ -1007,6 +1022,10 @@ const bg: Record<TKey, string> = {
   "assign.exactAmounts": "Точни суми",
   "assign.equalHint": "Избраните хора делят този артикул по равно.",
   "assign.exactHint": "Въведете точно каква част от артикула дължи всеки.",
+  "assign.byUnits": "По бройки",
+  "assign.unitsHint": "Разпределете {quantity}-те бройки между хората — кой колко е взел.",
+  "assign.unitsOf": "{n} / {quantity}",
+  "assign.unitsCounter": "Разпределени {assigned} от {quantity} бройки",
   "assign.enterValidPrice": "Първо въведете валидна цена на артикула.",
 
   // ---- common ----
@@ -1044,6 +1063,7 @@ const bg: Record<TKey, string> = {
   "convert.invalidAssignment": "„{name}“ има невалидно разпределение.",
   "convert.enterAmountForAll": "Въведете сума за всеки, който дели „{name}“.",
   "convert.itemAmountsSum": "Сумите за „{name}“ правят общо {sum}, а артикулът струва {total}.",
+  "convert.unitsSum": "Бройките за „{name}“ правят общо {sum}, а артикулът има {quantity} бройки.",
   "convert.addAssignOne": "Добавете и разпределете поне един артикул.",
   "convert.negativeShare": "Делът на {name} би станал отрицателен — преразпределете редовете с отстъпки.",
   "convert.totalGreaterZero": "Общата сума на бележката трябва да е по-голяма от нула.",

@@ -155,7 +155,12 @@ export type DeletionOverview = {
 
 // ---------- Receipt scanning ----------
 
-export type ScanItemShareDto = { aliasId: string; exactCents: number | null };
+export type ScanItemShareDto = {
+  aliasId: string;
+  exactCents: number | null;
+  /** assignMode "units": whole units this person takes (sum === quantity). */
+  units: number | null;
+};
 
 export type ScanItemDto = {
   id: string;
@@ -236,7 +241,13 @@ export type ScanEditInput = {
 
 export type ParseReceiptResult =
   | { ok: true; scanId: string; duplicate?: boolean }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      error: string;
+      /** True when the monthly scan quota refused the parse — the UI renders
+       *  an upgrade card instead of the generic failure banner. */
+      quotaExceeded?: true;
+    };
 
 /**
  * One entry of an activity-log `details.changes` array. New rows store

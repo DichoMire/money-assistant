@@ -39,6 +39,14 @@ export const users = pgTable("users", {
   lastExportAt: timestamp("last_export_at"),
   /** When the user dismissed the "we published terms/privacy" notice. */
   policiesAcceptedAt: timestamp("policies_accepted_at"),
+  /**
+   * Entitlements (src/lib/entitlements.ts) are exactly these two columns:
+   * plan 'free' | 'plus', and — for plus — when it lapses (period end + grace,
+   * written by the future billing webhook). Deliberately NOT in the JWT: it
+   * would go stale the moment a webhook flips the plan.
+   */
+  plan: text("plan").notNull().default("free"),
+  planExpiresAt: timestamp("plan_expires_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -249,6 +257,16 @@ export const receiptScans = pgTable(
      * imageHash stays either way, so group-level dedupe keeps working.
      */
     keepImage: boolean("keep_image").notNull().default(false),
+    /** Dual-era receipts (Jan–Aug 2026): the second printed total, e.g. the
+     *  informational BGN total on a EUR receipt — a free validation signal. */
+    secondTotalCents: integer("second_total_cents"),
+    secondCurrency: text("second_currency"),
+    /** |bgn − round(eur × 1.95583)| ≤ 1 cent; null when no second total. */
+    dualTotalMatches: boolean("dual_total_matches"),
+    /** Per-scan LLM cost from the provider's usage object (µUSD; null when
+     *  the endpoint reports none) and end-to-end parse latency. */
+    costMicroUsd: integer("cost_microusd"),
+    latencyMs: integer("latency_ms"),
     expenseId: uuid("expense_id").references(() => expenses.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -286,6 +304,10 @@ export const receiptItems = pgTable("receipt_items", {
   unitPriceCents: integer("unit_price_cents"),
   totalCents: integer("total_cents").notNull(),
   category: text("category"),
+  /** Bulgarian fiscal VAT group letter (А/Б/В/Г) printed after the name. */
+  taxGroup: text("tax_group"),
+  /** product | deposit | discount | fee — deposit/discount lines typed. */
+  lineType: text("line_type"),
   assignMode: text("assign_mode").notNull().default("unassigned"),
 });
 
@@ -303,8 +325,26 @@ export const receiptItemShares = pgTable(
       .notNull()
       .references(() => aliases.id, { onDelete: "cascade" }),
     exactCents: integer("exact_cents"),
+    /** assignMode "units": whole units of the item this person takes
+     *  (sum(units) === item.quantity); null for every other mode. */
+    units: integer("units"),
   },
   (t) => [primaryKey({ columns: [t.itemId, t.aliasId] })]
+);
+
+/** Per-user monthly scan counter (Europe/Sofia month) — the metering RFC 09
+ *  bills against. Incremented only after a SUCCESSFUL parse. */
+export const scanUsage = pgTable(
+  "scan_usage",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** "YYYY-MM". */
+    period: text("period").notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.period] })]
 );
 
 // Per-user "last seen" watermark for a group, updated when the user opens the

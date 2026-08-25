@@ -20,9 +20,11 @@ import {
   buildExpenseInput,
   computePersonTotals,
   resolveDiscountCents,
+  unitsEligible,
   type ConvertItem,
 } from "@/lib/receipt-convert";
 import { RATE_LIMITS, rateLimit } from "@/lib/rate-limit";
+import { incrementScanCount, readScanQuota } from "@/lib/scan-usage";
 import { parseReceiptImage } from "@/lib/receipt-parse";
 import { MAX_RECEIPT_ITEMS, reconcile } from "@/lib/receipt-schema";
 import { todayString } from "@/lib/rates";
@@ -74,6 +76,20 @@ export async function parseReceipt(groupId: string, formData: FormData): Promise
       if (!rl.ok) return { ok: false, error: t("errors.tooManyScans", { seconds: rl.retryAfterSec }) };
     }
 
+    // Monthly quota (RFC 09): checked before the LLM call, refused only when
+    // enforcement is on (billing live). Meter unreadable -> allow the scan.
+    const quota = await readScanQuota(db, user.id);
+    if (quota?.enforced && quota.used >= quota.limit) {
+      return {
+        ok: false,
+        error:
+          quota.plan === "plus"
+            ? t("quota.fairUseCap", { limit: quota.limit })
+            : t("quota.exhausted", { limit: quota.limit }),
+        quotaExceeded: true,
+      };
+    }
+
     const outcome = await parseReceiptImage(bytes, file.type, group.currency);
     if (!outcome.ok) {
       const messages = {
@@ -87,6 +103,10 @@ export async function parseReceipt(groupId: string, formData: FormData): Promise
       return { ok: false, error: messages[outcome.code] + hint };
     }
     const { receipt } = outcome;
+
+    // The LLM ran and succeeded — meter it now, even if the insert below then
+    // fails (the spend is real; metering stays honest).
+    await incrementScanCount(db, user.id);
 
     // Scan header, image, and items land atomically — no orphan drafts.
     const scanId = await withTransaction(async (tx) => {
@@ -107,6 +127,11 @@ export async function parseReceipt(groupId: string, formData: FormData): Promise
           reconciles: outcome.reconciles,
           model: outcome.model,
           imageHash,
+          secondTotalCents: receipt.secondTotalCents ?? null,
+          secondCurrency: receipt.secondCurrency ?? null,
+          dualTotalMatches: receipt.dualTotalMatches ?? null,
+          costMicroUsd: outcome.costMicroUsd,
+          latencyMs: outcome.latencyMs,
         })
         .returning({ id: receiptScans.id });
       const id = scanRows[0].id;
@@ -126,6 +151,8 @@ export async function parseReceipt(groupId: string, formData: FormData): Promise
           unitPriceCents: item.unitPriceCents,
           totalCents: item.totalCents,
           category: item.category,
+          taxGroup: item.taxGroup ?? null,
+          lineType: item.lineType ?? null,
         }))
       );
       return id;
@@ -223,12 +250,34 @@ async function persistScanEdits(
       return { ok: false, error: t("errors.assignExactlyOne", { name }) };
     }
     if ((item.assignMode === "single" || item.assignMode === "equal") && item.shares.length >= 1) {
-      if (item.shares.some((s) => s.exactCents !== null)) {
+      if (item.shares.some((s) => s.exactCents !== null || (s.units ?? null) !== null)) {
         return { ok: false, error: t("errors.invalidAssignmentFor", { name }) };
       }
     }
     if (item.assignMode === "equal" && item.shares.length === 0) {
       return { ok: false, error: t("errors.selectWhoShares", { name }) };
+    }
+    // Unit mode: whole-count items only, one row per participant with
+    // units >= 1 summing exactly to the item quantity.
+    if (item.assignMode === "units") {
+      if (!unitsEligible(item.quantity)) {
+        return { ok: false, error: t("errors.invalidAssignmentFor", { name }) };
+      }
+      if (item.shares.length === 0) return { ok: false, error: t("errors.selectWhoShares", { name }) };
+      if (item.shares.some((s) => s.exactCents !== null)) {
+        return { ok: false, error: t("errors.invalidAssignmentFor", { name }) };
+      }
+      const units = item.shares.map((s) => s.units ?? 0);
+      if (units.some((u) => !Number.isInteger(u) || u < 1)) {
+        return { ok: false, error: t("errors.invalidAssignmentFor", { name }) };
+      }
+      const unitSum = units.reduce((a, b) => a + b, 0);
+      if (unitSum !== item.quantity) {
+        return {
+          ok: false,
+          error: t("convert.unitsSum", { name, sum: unitSum, quantity: item.quantity }),
+        };
+      }
     }
     // Exact amounts must be integers, but summing to the line total is only
     // enforced at conversion (computePersonTotals) — a draft may temporarily
@@ -283,7 +332,12 @@ async function persistScanEdits(
       )
       .returning({ id: receiptItems.id });
     const shareValues = items.flatMap((item, i) =>
-      item.shares.map((s) => ({ itemId: inserted[i].id, aliasId: s.aliasId, exactCents: s.exactCents }))
+      item.shares.map((s) => ({
+        itemId: inserted[i].id,
+        aliasId: s.aliasId,
+        exactCents: s.exactCents,
+        units: s.units ?? null,
+      }))
     );
     if (shareValues.length > 0) await tx.insert(receiptItemShares).values(shareValues);
 
@@ -339,6 +393,7 @@ export async function convertScan(
     const convertItems: ConvertItem[] = items.map((item) => ({
       name: item.name,
       totalCents: item.totalCents,
+      quantity: item.quantity,
       assignMode: item.assignMode,
       shares: item.shares,
     }));

@@ -3,6 +3,7 @@ import { strict as assert } from "node:assert";
 import {
   cleanParsedItems,
   extractJson,
+  inferReceiptEra,
   reconcile,
   validateParsedReceipt,
   type ParsedReceiptItem,
@@ -11,6 +12,7 @@ import {
   buildExpenseInput,
   computePersonTotals,
   resolveDiscountCents,
+  unitsEligible,
   type ConvertItem,
 } from "../src/lib/receipt-convert";
 import { computeShares } from "../src/lib/split";
@@ -330,6 +332,149 @@ if (r.ok) {
   assert.equal(input.payers[0].paidCents, 2200);
   const check = computeShares("exact", input.amountCents, input.splits, "USD");
   assert.equal(check.ok, true, !check.ok ? check.error : "");
+}
+
+// ---- Bulgarian eras (RFC 04 §3.2) ----
+assert.equal(inferReceiptEra("2025-11-30"), "bgn");
+assert.equal(inferReceiptEra("2026-03-14"), "dual");
+assert.equal(inferReceiptEra("2026-08-24"), "eur");
+assert.equal(inferReceiptEra(null), null);
+assert.equal(inferReceiptEra("garbage"), null);
+
+// Dual-era receipt: EUR total 20.00, printed lev total 39.12 → captured and
+// cross-checked at the fixed 1.95583 rate.
+const dual = validateParsedReceipt(
+  {
+    merchant: "Билла",
+    purchased_at: "2026-03-14",
+    currency: "EUR",
+    items: [{ name: "Хляб", total_price_minor: 2000 }],
+    total_minor: 2000,
+    second_total_minor: 3912,
+    second_total_currency: "BGN",
+    printed_rate: 1.95583,
+    is_fiscal_receipt: true,
+  },
+  "EUR"
+);
+assert.equal(dual.ok, true);
+if (dual.ok) {
+  assert.equal(dual.receipt.secondTotalCents, 3912);
+  assert.equal(dual.receipt.secondCurrency, "BGN");
+  assert.equal(dual.receipt.dualTotalMatches, true);
+  assert.equal(dual.receipt.printedRate, 1.95583);
+  assert.equal(dual.receipt.isFiscalReceipt, true);
+}
+// A lev total off by more than a stotinka flips the flag.
+const dualOff = validateParsedReceipt(
+  {
+    currency: "EUR",
+    items: [{ name: "Хляб", total_price_minor: 2000 }],
+    total_minor: 2000,
+    second_total_minor: 3920,
+    second_total_currency: "BGN",
+  },
+  "EUR"
+);
+assert.equal(dualOff.ok && dualOff.receipt.dualTotalMatches, false);
+
+// Pre-2026 BGN receipt: normalized to EUR at the fixed rate (the app retired
+// BGN), per-amount half-up.
+const bgnEra = validateParsedReceipt(
+  {
+    purchased_at: "2025-07-01",
+    currency: "BGN",
+    items: [{ name: "Кафе", total_price_minor: 391 }], // 3.91 лв → 2.00 €
+    total_minor: 391,
+  },
+  "EUR"
+);
+assert.equal(bgnEra.ok, true);
+if (bgnEra.ok) {
+  assert.equal(bgnEra.receipt.currency, "EUR");
+  assert.equal(bgnEra.receipt.items[0].totalCents, 200);
+  assert.equal(bgnEra.receipt.totalCents, 200);
+  assert.equal(bgnEra.receipt.convertedFromBgn, true);
+}
+
+// VAT group letters: model field wins; raw_text "*Б" fallback works.
+const vat = validateParsedReceipt(
+  {
+    currency: "EUR",
+    items: [
+      { name: "Бира", total_price_minor: 300, tax_group: "Б" },
+      { name: "Хляб", raw_text: "ХЛЯБ ДОБРУДЖА 1.20 *В", total_price_minor: 120 },
+      { name: "Депозит", total_price_minor: 20, line_type: "deposit" },
+    ],
+    total_minor: 440,
+  },
+  "EUR"
+);
+assert.equal(vat.ok, true);
+if (vat.ok) {
+  assert.equal(vat.receipt.items[0].taxGroup, "Б");
+  assert.equal(vat.receipt.items[1].taxGroup, "В");
+  assert.equal(vat.receipt.items[2].lineType, "deposit");
+}
+
+// ---- unit-level splitting (RFC 04 §3.4) ----
+assert.equal(unitsEligible(3), true);
+assert.equal(unitsEligible(1), false);
+assert.equal(unitsEligible(0.726), false);
+assert.equal(unitsEligible(100), false);
+
+// "3 × Бира 5.40" with 2 units to A, 1 to B → 3.60 / 1.80.
+{
+  const unitItems: ConvertItem[] = [
+    {
+      name: "Бира",
+      totalCents: 540,
+      quantity: 3,
+      assignMode: "units",
+      shares: [
+        { aliasId: A, exactCents: null, units: 2 },
+        { aliasId: B, exactCents: null, units: 1 },
+      ],
+    },
+  ];
+  const ur = computePersonTotals(unitItems, { taxCents: 0, tipCents: 0, discountsCents: 0 }, "EUR", names);
+  assert.equal(ur.ok, true, !ur.ok ? ur.error : "");
+  if (ur.ok) {
+    assert.equal(ur.persons.find((p) => p.aliasId === A)?.totalCents, 360);
+    assert.equal(ur.persons.find((p) => p.aliasId === B)?.totalCents, 180);
+  }
+  // 5.00 over 3 units → 167/167/166, summing exactly.
+  const three: ConvertItem[] = [
+    {
+      name: "Кафе",
+      totalCents: 500,
+      quantity: 3,
+      assignMode: "units",
+      shares: [
+        { aliasId: A, exactCents: null, units: 1 },
+        { aliasId: B, exactCents: null, units: 1 },
+        { aliasId: C, exactCents: null, units: 1 },
+      ],
+    },
+  ];
+  const tr = computePersonTotals(three, { taxCents: 0, tipCents: 0, discountsCents: 0 }, "EUR", names);
+  assert.equal(tr.ok, true);
+  if (tr.ok) {
+    const cents = tr.persons.map((p) => p.totalCents).sort((a, b) => b - a);
+    assert.deepEqual(cents, [167, 167, 166]);
+  }
+  // Units not summing to the quantity is rejected.
+  const bad: ConvertItem[] = [
+    {
+      name: "Бира",
+      totalCents: 540,
+      quantity: 3,
+      assignMode: "units",
+      shares: [{ aliasId: A, exactCents: null, units: 2 }],
+    },
+  ];
+  const br = computePersonTotals(bad, { taxCents: 0, tipCents: 0, discountsCents: 0 }, "EUR", names);
+  assert.equal(br.ok, false);
 }
 
 console.log("All receipt tests passed.");

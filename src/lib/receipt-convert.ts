@@ -8,18 +8,26 @@ import type { ExpenseInput } from "./types";
  * the server for enforcement (the split.ts dual-use pattern).
  */
 
-export type AssignMode = "unassigned" | "single" | "equal" | "exact";
+export type AssignMode = "unassigned" | "single" | "equal" | "exact" | "units";
 
-export const ASSIGN_MODES: readonly AssignMode[] = ["unassigned", "single", "equal", "exact"];
+export const ASSIGN_MODES: readonly AssignMode[] = ["unassigned", "single", "equal", "exact", "units"];
 
-export type ConvertItemShare = { aliasId: string; exactCents: number | null };
+export type ConvertItemShare = { aliasId: string; exactCents: number | null; units?: number | null };
 
 export type ConvertItem = {
   name: string;
   totalCents: number;
+  /** Needed to validate "units" mode: sum(units) === quantity. */
+  quantity?: number;
   assignMode: AssignMode;
   shares: ConvertItemShare[];
 };
+
+/** Unit splitting works for whole small counts only — fractional (weighted)
+ *  quantities keep the whole-line modes (RFC 04 §3.4). */
+export function unitsEligible(quantity: number): boolean {
+  return Number.isInteger(quantity) && quantity >= 2 && quantity <= 99;
+}
 
 export type PersonTotal = {
   aliasId: string;
@@ -84,6 +92,26 @@ export function computePersonTotals(
       add(item.shares[0].aliasId, item.totalCents);
     } else if (item.assignMode === "equal") {
       const allocated = allocateByWeights(item.totalCents, item.shares.map(() => 1));
+      item.shares.forEach((s, i) => add(s.aliasId, allocated[i]));
+    } else if (item.assignMode === "units") {
+      // "2 of 3 beers" — allocate the line total by unit counts
+      // (largest-remainder guarantees the cents sum exactly).
+      const units = item.shares.map((s) => s.units ?? 0);
+      if (units.some((u) => !Number.isInteger(u) || u < 1)) {
+        return { ok: false, error: t("convert.invalidAssignment", { name: item.name }) };
+      }
+      const unitSum = units.reduce((a, b) => a + b, 0);
+      if (item.quantity !== undefined && unitSum !== item.quantity) {
+        return {
+          ok: false,
+          error: t("convert.unitsSum", {
+            name: item.name,
+            sum: unitSum,
+            quantity: item.quantity,
+          }),
+        };
+      }
+      const allocated = allocateByWeights(item.totalCents, units);
       item.shares.forEach((s, i) => add(s.aliasId, allocated[i]));
     } else {
       let sum = 0;

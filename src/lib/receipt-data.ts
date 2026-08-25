@@ -74,7 +74,7 @@ export async function loadScanDetail(
     // against live aliases anyway so a stale row can never reach the UI.
     const shares = shareRows
       .filter((s) => s.itemId === item.id && liveAliasIds.has(s.aliasId))
-      .map((s) => ({ aliasId: s.aliasId, exactCents: s.exactCents }));
+      .map((s) => ({ aliasId: s.aliasId, exactCents: s.exactCents, units: s.units }));
     const mode = ASSIGN_MODES.includes(item.assignMode as AssignMode)
       ? (item.assignMode as AssignMode)
       : "unassigned";

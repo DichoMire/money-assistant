@@ -38,6 +38,8 @@ type EditableItem = {
   assignMode: AssignMode;
   shareAliasIds: string[];
   exactVals: Values;
+  /** assignMode "units": whole units per selected person. */
+  unitVals: Record<string, number>;
 };
 
 /* Unassigned items (fresh scans, older drafts) default to an equal split
@@ -57,6 +59,9 @@ function fromDto(item: ScanItemDto, allAliasIds: string[]): EditableItem {
     exactVals: Object.fromEntries(
       item.shares.filter((s) => s.exactCents !== null).map((s) => [s.aliasId, centsToStr(s.exactCents!)])
     ),
+    unitVals: Object.fromEntries(
+      item.shares.filter((s) => s.units !== null).map((s) => [s.aliasId, s.units!])
+    ),
   };
 }
 
@@ -72,6 +77,7 @@ function newItem(allAliasIds: string[]): EditableItem {
     assignMode: "equal",
     shareAliasIds: allAliasIds,
     exactVals: {},
+    unitVals: {},
   };
 }
 
@@ -149,6 +155,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
       assignMode: next.length === 1 ? "single" : "equal",
       shareAliasIds: next,
       exactVals: {},
+      unitVals: {},
     });
 
   const toggleParticipant = (id: string) => {
@@ -165,6 +172,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
               shareAliasIds,
               assignMode: shareAliasIds.length === 1 ? "single" : "equal",
               exactVals: {},
+              unitVals: {},
             };
           })
         );
@@ -247,6 +255,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
     it.shareAliasIds.map((aliasId) => ({
       aliasId,
       exactCents: it.assignMode === "exact" ? parseAmount(it.exactVals[aliasId] ?? "") : null,
+      units: it.assignMode === "units" ? (it.unitVals[aliasId] ?? 0) : null,
     }));
 
   const convertItems: ConvertItem[] = draftError
@@ -254,6 +263,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
     : items.map((it) => ({
         name: it.name.trim(),
         totalCents: parseAmount(it.totalStr)!,
+        quantity: it.quantity,
         assignMode: it.assignMode,
         shares: buildShares(it),
       }));
@@ -631,10 +641,12 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
                         })}
                         <button
                           type="button"
-                          className={`chip !px-2.5 ${it.assignMode === "exact" ? "chip-on" : ""}`}
+                          className={`chip !px-2.5 ${
+                            it.assignMode === "exact" || it.assignMode === "units" ? "chip-on" : ""
+                          }`}
                           onClick={() => setAssignItemKey(it.key)}
                         >
-                          {t("assign.exactAmounts")}
+                          {it.assignMode === "units" ? t("assign.byUnits") : t("assign.exactAmounts")}
                         </button>
                       </>
                     ) : (
@@ -767,16 +779,23 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
         <ScanAssignModal
           itemName={assignItem.name.trim() || t("scanReview.itemFallback")}
           itemTotalCents={parseAmount(assignItem.totalStr)}
+          itemQuantity={assignItem.quantity}
           currency={currency}
           aliases={activeAliases}
-          initialMode={assignItem.assignMode === "exact" ? "exact" : "equal"}
+          initialMode={
+            assignItem.assignMode === "exact" || assignItem.assignMode === "units"
+              ? assignItem.assignMode
+              : "equal"
+          }
           initialSelected={assignItem.shareAliasIds}
           initialExactVals={assignItem.exactVals}
-          onDone={(mode, selectedIds, exactVals) => {
+          initialUnitVals={assignItem.unitVals}
+          onDone={(mode, selectedIds, exactVals, unitVals) => {
             updateItem(assignItem.key, {
               assignMode: mode === "equal" && selectedIds.length === 1 ? "single" : mode,
               shareAliasIds: selectedIds,
               exactVals,
+              unitVals,
             });
             setAssignItemKey(null);
           }}

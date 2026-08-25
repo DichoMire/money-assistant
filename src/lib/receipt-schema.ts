@@ -1,10 +1,13 @@
 import { isSupportedCurrency } from "./currencies";
+import { roundHalfUp } from "./rates";
 
 /**
  * The wire schema the LLM is asked to produce (snake_case, minor units) and
  * the validated camelCase form the rest of the app consumes. Kept isomorphic
  * (no server imports) so the validator can run in tests via tsx.
  */
+
+export type ReceiptLineType = "product" | "deposit" | "discount" | "fee";
 
 export type ParsedReceiptItem = {
   rawText: string | null;
@@ -13,6 +16,9 @@ export type ParsedReceiptItem = {
   unitPriceCents: number | null;
   totalCents: number;
   category: string | null;
+  /** Bulgarian fiscal VAT group letter (А/Б/В/Г) printed after the name. */
+  taxGroup?: string | null;
+  lineType?: ReceiptLineType | null;
 };
 
 export type ParsedReceipt = {
@@ -28,7 +34,35 @@ export type ParsedReceipt = {
   discountsCents: number;
   totalCents: number;
   confidence: number | null;
+  /** Dual-era receipts: the second printed total in the OTHER currency. */
+  secondTotalCents?: number | null;
+  secondCurrency?: string | null;
+  /** The printed conversion rate line (1.95583), when shown. */
+  printedRate?: number | null;
+  isFiscalReceipt?: boolean | null;
+  /** Cross-check of the dual totals at the fixed 1.95583 rate (±1 cent);
+   *  null when the receipt has no second total. */
+  dualTotalMatches?: boolean | null;
+  /** True when a BGN receipt was normalized to EUR at the fixed legal rate
+   *  (the app retired BGN — pre-2026 receipts stay scannable this way). */
+  convertedFromBgn?: boolean;
 };
+
+/**
+ * Bulgarian receipt eras (RFC 04 §3.2): line items in BGN through 2025, in
+ * EUR from 2026; both totals printed during the mandatory dual-display window
+ * (voluntary BGN reference lines may legally appear after it — tolerate).
+ */
+export type ReceiptEra = "bgn" | "dual" | "eur";
+export function inferReceiptEra(dateISO: string | null): ReceiptEra | null {
+  if (!dateISO || !DATE_RE.test(dateISO)) return null;
+  if (dateISO <= "2025-12-31") return "bgn";
+  if (dateISO <= "2026-08-08") return "dual";
+  return "eur";
+}
+
+/** The fixed legal BGN/EUR conversion rate (Council Reg. (EU) 2025/1408). */
+export const BGN_PER_EUR = 1.95583;
 
 export const MAX_RECEIPT_ITEMS = 100;
 
@@ -60,7 +94,9 @@ Schema:
       "quantity": 1,
       "unit_price_minor": 599,
       "total_price_minor": 599,
-      "category": "food|alcohol|household|other"
+      "category": "food|alcohol|household|other",
+      "tax_group": "А|Б|В|Г or null",
+      "line_type": "product|deposit|discount|fee"
     }
   ],
   "subtotal_minor": 0,
@@ -68,6 +104,10 @@ Schema:
   "tip_minor": 0,
   "discounts_minor": 0,
   "total_minor": 0,
+  "second_total_minor": null,
+  "second_total_currency": null,
+  "printed_rate": null,
+  "is_fiscal_receipt": true,
   "confidence": 0.0
 }
 
@@ -81,7 +121,11 @@ Rules:
 - Each printed product becomes EXACTLY ONE entry in "items" - when a quantity line accompanies a product, output one combined item, never two.
 - NEVER include subtotal, total ("ОБЩА СУМА", "TOTAL"), payment ("ПЛАТЕНО", card/cash), change, tax-summary or savings ("ТИ СПЕСТИ") lines as items - they belong in the dedicated fields or nowhere.
 - "quantity" may be fractional for weighted items (e.g. 0.734 for 0.734 kg). For "3 x" lines set quantity 3 and the per-unit price in "unit_price_minor"; "total_price_minor" is always the printed line total.
-- "currency": infer from symbols or text on the receipt (e.g. "ЕВРО" or "€" means EUR). Bulgarian receipts may print an informational lev total ("лв") next to the euro one - ignore "лв" amounts and extract the euro values. If unclear, use "${groupCurrency}".
+- "currency": infer from symbols or text on the receipt (e.g. "ЕВРО" or "€" means EUR, "лв" means BGN). If unclear, use "${groupCurrency}".
+- Bulgarian receipt eras: dated 2025 or earlier, line items are in BGN (лв); from 2026 they are in EUR. Receipts from January-August 2026 print BOTH totals (the euro total plus "ОБЩА СУМА В ЛЕВА" and a conversion rate line "1.95583"). On such dual receipts extract the EUR values, put the printed lev total in "second_total_minor" with "second_total_currency": "BGN", and the printed rate in "printed_rate". The second total is NEVER an item. On a BGN-only (pre-2026) receipt output the lev amounts with "currency": "BGN".
+- The VAT tax-group letter printed after an item name (like "*Б", "Г", "*A") goes in "tax_group" (values А, Б, В or Г), never in "name".
+- "line_type": classify each line - "deposit" for bottle-deposit lines (ДЕПОЗИТ, АМБАЛАЖ), "discount" for discount/coupon lines (ОТСТЪПКА), "fee" for service fees, "product" for everything else.
+- "is_fiscal_receipt": true when the fiscal footer is present ("ФИСКАЛЕН БОН" or a fiscal QR code), false when clearly absent, null when unclear.
 - The identity sum(items.total_price_minor) + tax_minor + tip_minor - discounts_minor = total_minor must hold. If it does not, re-check your line extraction. In many countries tax is already included in item prices - then tax_minor is 0.
 - "confidence": your overall confidence in this extraction, 0 to 1.
 - If the image is not a purchase receipt at all, output exactly {"error":"not_a_receipt"}.`;
@@ -117,8 +161,11 @@ function strOrNull(v: unknown, maxLen: number): string | null {
 }
 
 // Summary rows small free models keep emitting as items despite instructions.
+// курс / "в лева" cover the dual-era conversion and second-total lines — the
+// validator consumes second_total_minor BEFORE cleanup, so dropping them here
+// never loses data.
 const SUMMARY_LINE_RE =
-  /(обща\s*сума|междинна\s*сума|ти\s*спести|платено|ресто|subtotal|total|amount\s*due|change\s*due)/i;
+  /(обща\s*сума|междинна\s*сума|ти\s*спести|платено|ресто|в\s*лева|\bкурс\b|subtotal|total|amount\s*due|change\s*due)/i;
 // A bare "0.726 x 1.99" quantity-detail line (Latin x, ×, or Cyrillic х).
 const QTY_LINE_RE = /^\s*(\d+(?:[.,]\d+)?)\s*[x×х*]\s*(\d+(?:[.,]\d+)?)\s*$/i;
 
@@ -222,6 +269,21 @@ export function validateParsedReceipt(raw: unknown, groupCurrency: string): Vali
     const qty = typeof entry.quantity === "number" && Number.isFinite(entry.quantity) && entry.quantity > 0
       ? entry.quantity
       : 1;
+    // VAT group: the model's field, else a regex fallback on the verbatim
+    // line (Bulgarian fiscal receipts print "*Б"-style markers at the end).
+    let taxGroup = strOrNull(entry.tax_group, 2);
+    if (taxGroup && !/^[АБВГ]$/.test(taxGroup)) taxGroup = null;
+    if (!taxGroup && rawText) {
+      const m = rawText.match(/[*\s]([АБВГ])\s*$/);
+      if (m) taxGroup = m[1];
+    }
+    const lineTypeRaw = strOrNull(entry.line_type, 10);
+    const lineType: ReceiptLineType | null =
+      lineTypeRaw === "deposit" || lineTypeRaw === "discount" || lineTypeRaw === "fee"
+        ? lineTypeRaw
+        : lineTypeRaw === "product"
+          ? "product"
+          : null;
     items.push({
       rawText,
       name: strOrNull(entry.name, 200) ?? rawText ?? `Item ${i + 1}`,
@@ -229,6 +291,8 @@ export function validateParsedReceipt(raw: unknown, groupCurrency: string): Vali
       unitPriceCents: intOrNull(entry.unit_price_minor),
       totalCents,
       category: strOrNull(entry.category, 40),
+      taxGroup,
+      lineType,
     });
   }
   if (items.length === 0) {
@@ -236,23 +300,61 @@ export function validateParsedReceipt(raw: unknown, groupCurrency: string): Vali
   }
 
   const currencyRaw = typeof raw.currency === "string" ? raw.currency.trim().toUpperCase() : "";
-  const currency = isSupportedCurrency(currencyRaw) ? currencyRaw : groupCurrency;
+  // The app retired BGN entirely (migration 0007): a BGN receipt (pre-2026,
+  // or a misread lev line) is normalized to EUR at the fixed legal rate,
+  // half-up per amount — the same rule the stored-data migration used.
+  const claimedBgn = currencyRaw === "BGN";
+  const currency = claimedBgn
+    ? "EUR"
+    : isSupportedCurrency(currencyRaw)
+      ? currencyRaw
+      : groupCurrency;
+  const bgnToEur = (cents: number) => roundHalfUp(cents / BGN_PER_EUR);
+  const money = (v: number) => (claimedBgn ? bgnToEur(v) : v);
 
   const dateRaw = typeof raw.purchased_at === "string" ? raw.purchased_at.slice(0, 10) : "";
   const date = DATE_RE.test(dateRaw) ? dateRaw : null;
 
-  const taxCents = intOrNull(raw.tax_minor) ?? 0;
-  const tipCents = intOrNull(raw.tip_minor) ?? 0;
-  const discountsCents = Math.abs(intOrNull(raw.discounts_minor) ?? 0);
-  const modelTotal = intOrNull(raw.total_minor) || null;
+  const convertedItems = claimedBgn
+    ? items.map((it) => ({
+        ...it,
+        totalCents: bgnToEur(it.totalCents),
+        unitPriceCents: it.unitPriceCents === null ? null : bgnToEur(it.unitPriceCents),
+      }))
+    : items;
+
+  const taxCents = money(intOrNull(raw.tax_minor) ?? 0);
+  const tipCents = money(intOrNull(raw.tip_minor) ?? 0);
+  const discountsCents = money(Math.abs(intOrNull(raw.discounts_minor) ?? 0));
+  const modelTotalRaw = intOrNull(raw.total_minor) || null;
+  const modelTotal = modelTotalRaw === null ? null : money(modelTotalRaw);
   const cleaned = cleanParsedItems(
-    items,
+    convertedItems,
     modelTotal === null ? null : modelTotal - taxCents - tipCents + discountsCents
   );
   if (cleaned.length === 0) {
     return { ok: false, error: "The model couldn't read any items from this receipt." };
   }
   const totalCents = modelTotal ?? itemsSum(cleaned) + taxCents + tipCents - discountsCents;
+
+  // Dual-era cross-check: a printed BGN second total on a EUR receipt must
+  // equal round(eurTotal × 1.95583) within a stotinka — a free validation
+  // signal for the whole extraction.
+  const secondTotalCents = intOrNull(raw.second_total_minor);
+  const secondCurrencyRaw =
+    typeof raw.second_total_currency === "string"
+      ? raw.second_total_currency.trim().toUpperCase()
+      : null;
+  const secondCurrency = secondTotalCents !== null ? secondCurrencyRaw : null;
+  let dualTotalMatches: boolean | null = null;
+  if (secondTotalCents !== null && secondCurrency === "BGN" && currency === "EUR") {
+    const expected = roundHalfUp(totalCents * BGN_PER_EUR);
+    dualTotalMatches = Math.abs(secondTotalCents - expected) <= 1;
+  }
+  const printedRateRaw = raw.printed_rate;
+  const printedRate =
+    typeof printedRateRaw === "number" && Number.isFinite(printedRateRaw) ? printedRateRaw : null;
+  const isFiscalReceipt = typeof raw.is_fiscal_receipt === "boolean" ? raw.is_fiscal_receipt : null;
 
   const confidenceRaw = raw.confidence;
   const confidence =
@@ -267,12 +369,18 @@ export function validateParsedReceipt(raw: unknown, groupCurrency: string): Vali
       date,
       currency,
       items: cleaned,
-      subtotalCents: intOrNull(raw.subtotal_minor),
+      subtotalCents: claimedBgn ? null : intOrNull(raw.subtotal_minor),
       taxCents,
       tipCents,
       discountsCents,
       totalCents,
       confidence,
+      secondTotalCents,
+      secondCurrency,
+      printedRate,
+      isFiscalReceipt,
+      dualTotalMatches,
+      convertedFromBgn: claimedBgn,
     },
   };
 }

@@ -2,41 +2,58 @@
 
 import { useState } from "react";
 import { allocateByWeights, amountPlaceholder, formatCents, parseAmount } from "@/lib/money";
+import { unitsEligible } from "@/lib/receipt-convert";
 import type { AliasDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
 import { useT } from "./LocaleProvider";
 import { Modal } from "./Modal";
 
 type Values = Record<string, string>;
+type UnitValues = Record<string, number>;
+type AssignSheetMode = "equal" | "exact" | "units";
 
 /**
  * Per-item "complex division" editor: share the line equally among a subgroup,
- * or give each chosen person an exact amount (must sum to the line total).
+ * give each chosen person an exact amount (must sum to the line total), or —
+ * for whole-count items like "3 × беер" — assign whole units per person.
  */
 export function ScanAssignModal({
   itemName,
   itemTotalCents,
+  itemQuantity,
   currency,
   aliases,
   initialMode,
   initialSelected,
   initialExactVals,
+  initialUnitVals,
   onDone,
   onClose,
 }: {
   itemName: string;
   itemTotalCents: number | null;
+  itemQuantity: number;
   currency: string;
   aliases: AliasDto[];
-  initialMode: "equal" | "exact";
+  initialMode: AssignSheetMode;
   initialSelected: string[];
   initialExactVals: Values;
-  onDone: (mode: "equal" | "exact", selectedIds: string[], exactVals: Values) => void;
+  initialUnitVals: UnitValues;
+  onDone: (
+    mode: AssignSheetMode,
+    selectedIds: string[],
+    exactVals: Values,
+    unitVals: UnitValues
+  ) => void;
   onClose: () => void;
 }) {
   const t = useT();
   const money = (cents: number, currency: string) => formatCents(cents, currency, t.locale);
-  const [mode, setMode] = useState<"equal" | "exact">(initialMode);
+  const unitsAvailable = unitsEligible(itemQuantity);
+  const [mode, setMode] = useState<AssignSheetMode>(
+    initialMode === "units" && !unitsAvailable ? "equal" : initialMode
+  );
+  const [unitVals, setUnitVals] = useState<UnitValues>(initialUnitVals);
   const [selected, setSelected] = useState<Record<string, boolean>>(() => {
     const sel: Record<string, boolean> = {};
     // An unsplit item opens with everyone selected — the common "shared by
@@ -64,7 +81,14 @@ export function ScanAssignModal({
   const exactOk =
     itemTotalCents !== null && !exactInvalid && exactEntered === itemTotalCents;
 
-  const doneDisabled = selectedIds.length === 0 || (mode === "exact" && !exactOk);
+  const unitsAssigned = selectedIds.reduce((sum, id) => sum + (unitVals[id] ?? 0), 0);
+  const unitsOk =
+    selectedIds.every((id) => (unitVals[id] ?? 0) >= 1) && unitsAssigned === itemQuantity;
+
+  const doneDisabled =
+    selectedIds.length === 0 ||
+    (mode === "exact" && !exactOk) ||
+    (mode === "units" && !unitsOk);
 
   const done = () => {
     if (doneDisabled) return;
@@ -73,9 +97,18 @@ export function ScanAssignModal({
       selectedIds,
       mode === "exact"
         ? Object.fromEntries(selectedIds.map((id) => [id, exactVals[id] ?? ""]))
+        : {},
+      mode === "units"
+        ? Object.fromEntries(selectedIds.map((id) => [id, unitVals[id] ?? 0]))
         : {}
     );
   };
+
+  const bumpUnits = (id: string, delta: number) =>
+    setUnitVals((prev) => ({
+      ...prev,
+      [id]: Math.max(0, Math.min(itemQuantity, (prev[id] ?? 0) + delta)),
+    }));
 
   return (
     <Modal title={t("assign.title", { name: itemName })} onClose={onClose}>
@@ -83,9 +116,10 @@ export function ScanAssignModal({
         <div className="flex gap-1">
           {(
             [
-              { key: "equal", label: t("assign.equally") },
-              { key: "exact", label: t("assign.exactAmounts") },
-            ] as const
+              { key: "equal" as const, label: t("assign.equally") },
+              { key: "exact" as const, label: t("assign.exactAmounts") },
+              ...(unitsAvailable ? [{ key: "units" as const, label: t("assign.byUnits") }] : []),
+            ]
           ).map((tab) => (
             <button
               key={tab.key}
@@ -103,7 +137,11 @@ export function ScanAssignModal({
           ))}
         </div>
         <p className="text-center text-xs text-gray-500">
-          {mode === "equal" ? t("assign.equalHint") : t("assign.exactHint")}
+          {mode === "equal"
+            ? t("assign.equalHint")
+            : mode === "exact"
+              ? t("assign.exactHint")
+              : t("assign.unitsHint", { quantity: itemQuantity })}
         </p>
 
         <div className="flex gap-4 px-2 text-xs">
@@ -160,6 +198,29 @@ export function ScanAssignModal({
                     />
                   </div>
                 )}
+                {mode === "units" && isSelected && (
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      className="btn btn-secondary !px-2.5 !py-0.5"
+                      aria-label="−"
+                      onClick={() => bumpUnits(a.id, -1)}
+                    >
+                      −
+                    </button>
+                    <span className="w-10 text-center text-sm font-bold text-gray-700">
+                      {t("assign.unitsOf", { n: unitVals[a.id] ?? 0, quantity: itemQuantity })}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-secondary !px-2.5 !py-0.5"
+                      aria-label="+"
+                      onClick={() => bumpUnits(a.id, 1)}
+                    >
+                      +
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -178,6 +239,10 @@ export function ScanAssignModal({
             </p>
           ) : mode === "exact" ? (
             <p className="text-sm font-semibold text-red-600">{t("assign.enterValidPrice")}</p>
+          ) : mode === "units" ? (
+            <p className={`text-sm font-semibold ${unitsOk ? "text-gray-500" : "text-red-600"}`}>
+              {t("assign.unitsCounter", { assigned: unitsAssigned, quantity: itemQuantity })}
+            </p>
           ) : null}
         </div>
 

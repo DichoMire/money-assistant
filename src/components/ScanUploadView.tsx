@@ -8,6 +8,7 @@ import { formatDate } from "@/lib/format";
 import { countWord, type TFunc } from "@/lib/i18n";
 import { formatCents } from "@/lib/money";
 import { RECEIPT_LLM_VENDOR } from "@/lib/receipt-schema";
+import type { ScanQuota } from "@/lib/scan-usage";
 import type { GroupDto, ScanSummaryDto } from "@/lib/types";
 import { useConfirm } from "./ConfirmModal";
 import { useLocale, useT } from "./LocaleProvider";
@@ -24,6 +25,10 @@ const TALL_ASPECT = 1.8;
 const JPEG_QUALITY = 0.8;
 const RETRY_QUALITY = 0.6;
 const RETRY_THRESHOLD_BYTES = 2_500_000;
+// Retry-at-higher-res (RFC 04 §3.7): re-encode the still-held original at
+// higher fidelity; new bytes hash differently so dedupe won't short-circuit.
+const HI_RES_EDGE = 3600;
+const HI_RES_QUALITY = 0.85;
 
 async function decodeImage(file: File): Promise<ImageBitmap | HTMLImageElement> {
   try {
@@ -46,14 +51,15 @@ function toBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob | null
   return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
 }
 
-/** Downscale (never upscale) and re-encode as JPEG. */
-async function downscaleToJpeg(file: File, t: TFunc): Promise<Blob> {
+/** Downscale (never upscale) and re-encode as JPEG. `hiRes` is the one-shot
+ *  retry mode: bigger edge + higher quality for hard-to-read receipts. */
+async function downscaleToJpeg(file: File, t: TFunc, hiRes = false): Promise<Blob> {
   const source = await decodeImage(file);
   const width = "naturalWidth" in source ? source.naturalWidth : source.width;
   const height = "naturalHeight" in source ? source.naturalHeight : source.height;
   if (!width || !height) throw new Error(t("scan.cantRead"));
   const aspect = Math.max(width, height) / Math.min(width, height);
-  const maxEdge = aspect >= TALL_ASPECT ? MAX_EDGE_TALL : MAX_EDGE;
+  const maxEdge = hiRes ? HI_RES_EDGE : aspect >= TALL_ASPECT ? MAX_EDGE_TALL : MAX_EDGE;
   const scale = Math.min(1, maxEdge / Math.max(width, height));
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(width * scale));
@@ -62,19 +68,30 @@ async function downscaleToJpeg(file: File, t: TFunc): Promise<Blob> {
   if (!ctx) throw new Error(t("scan.cantProcess"));
   ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
   if ("close" in source) source.close();
-  let blob = await toBlob(canvas, JPEG_QUALITY);
+  let blob = await toBlob(canvas, hiRes ? HI_RES_QUALITY : JPEG_QUALITY);
   if (blob && blob.size > RETRY_THRESHOLD_BYTES) blob = await toBlob(canvas, RETRY_QUALITY);
   if (!blob) throw new Error(t("scan.cantProcess"));
   return blob;
 }
 
-export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanSummaryDto[] }) {
+export function ScanUploadView({
+  group,
+  scans,
+  quota,
+}: {
+  group: GroupDto;
+  scans: ScanSummaryDto[];
+  quota: ScanQuota | null;
+}) {
   const router = useRouter();
   const t = useT();
   const locale = useLocale();
   const money = (cents: number, currency: string) => formatCents(cents, currency, locale);
   const { ask, confirmElement } = useConfirm();
   const inputRef = useRef<HTMLInputElement>(null);
+  const lastFileRef = useRef<File | null>(null);
+  const [quotaHit, setQuotaHit] = useState(false);
+  const [canRetryHiRes, setCanRetryHiRes] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -109,10 +126,13 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
     await processFile(file);
   };
 
-  const processFile = async (file: File) => {
+  const processFile = async (file: File, hiRes = false) => {
     setBusy(t("scan.preparing"));
+    setQuotaHit(false);
+    setCanRetryHiRes(false);
+    lastFileRef.current = file;
     try {
-      const jpeg = await downscaleToJpeg(file, t);
+      const jpeg = await downscaleToJpeg(file, t, hiRes);
       setPreview((old) => {
         if (old) URL.revokeObjectURL(old);
         return URL.createObjectURL(jpeg);
@@ -126,6 +146,10 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
         return; // keep the busy state up while navigating
       }
       setError(result.error);
+      if (result.quotaExceeded) setQuotaHit(true);
+      // One-shot retry offer at higher fidelity (only while the original
+      // File is still in hand, and only if we haven't already tried).
+      else if (!hiRes) setCanRetryHiRes(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("scan.cantReadImage"));
     }
@@ -227,14 +251,51 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
         </Link>
       </p>
 
-      {error && (
-        <p className="mt-3 text-sm font-medium text-red-600">
-          {error}{" "}
-          <Link href={`/groups/${group.id}`} className="underline">
-            {t("scan.addManually")}
-          </Link>
-          .
+      {/* Proactive quota counter — amber at one remaining (no surprise
+          exhaustion); enforcement itself lives server-side. */}
+      {quota && quota.enforced && (
+        <p
+          className={`mt-1 text-center text-xs ${
+            quota.limit - quota.used <= 1 ? "font-semibold text-amber-600" : "text-gray-400"
+          }`}
+        >
+          {t("quota.counter", { used: quota.used, limit: quota.limit })}
         </p>
+      )}
+
+      {quotaHit ? (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <p className="font-semibold">{error}</p>
+          <p className="mt-1 text-xs">
+            {t("quota.resetsMonthly")}{" "}
+            <Link href={`/groups/${group.id}`} className="underline">
+              {t("scan.addManually")}
+            </Link>
+            .
+          </p>
+        </div>
+      ) : (
+        error && (
+          <p className="mt-3 text-sm font-medium text-red-600">
+            {error}{" "}
+            {canRetryHiRes && lastFileRef.current && (
+              <>
+                <button
+                  type="button"
+                  className="cursor-pointer font-semibold underline"
+                  onClick={() => void processFile(lastFileRef.current!, true)}
+                >
+                  {t("scan.retryHiRes")}
+                </button>
+                {" · "}
+              </>
+            )}
+            <Link href={`/groups/${group.id}`} className="underline">
+              {t("scan.addManually")}
+            </Link>
+            .
+          </p>
+        )
       )}
 
       {scans.length > 0 && (

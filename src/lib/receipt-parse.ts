@@ -19,7 +19,22 @@ import {
  * that pulls JSON out of the reasoning field when content comes back empty.
  */
 
-const API_URL = "https://openrouter.ai/api/v1/chat/completions";
+/*
+ * Queue-trigger checklist (RFC 04 §3.7 — parsing stays SYNCHRONOUS until one
+ * of these is true; re-evaluate then, not before):
+ *  1. sustained p95 parse latency > ~30s (receipt_scans.latency_ms has the data);
+ *  2. a batch/multi-receipt upload feature;
+ *  3. server-side automatic retries (incl. retry-at-higher-res) instead of
+ *     user-driven ones;
+ *  4. function-duration or concurrency pressure on the Vercel plan.
+ */
+
+/** OpenAI-compatible chat-completions endpoint. Pointing this at
+ *  https://eu.api.openai.com/v1/chat/completions (with RECEIPT_API_KEY
+ *  holding an OpenAI key and OPENROUTER_MODEL=gpt-5-mini) is the
+ *  EU-residency option with zero further code. */
+const apiUrl = () =>
+  process.env.RECEIPT_API_URL || "https://openrouter.ai/api/v1/chat/completions";
 /* Free vision endpoints also disappear without notice (nemotron-nano-12b-v2-vl
    started 404ing), so this ladder needs the occasional availability re-check
    against https://openrouter.ai/api/v1/models. Only one Gemma variant is
@@ -44,7 +59,18 @@ export type ParseFailureCode =
   | "not_a_receipt";
 
 export type ParseOutcome =
-  | { ok: true; receipt: ParsedReceipt; reconciles: boolean; diffCents: number; model: string }
+  | {
+      ok: true;
+      receipt: ParsedReceipt;
+      reconciles: boolean;
+      diffCents: number;
+      model: string;
+      /** Provider-reported cost in µUSD (OpenRouter usage.cost); null when
+       *  the endpoint reports none. */
+      costMicroUsd: number | null;
+      /** End-to-end parse latency incl. ladder walking. */
+      latencyMs: number;
+    }
   | { ok: false; code: ParseFailureCode; error: string; busyHint?: boolean };
 
 export const PARSE_ERROR_MESSAGES: Record<ParseFailureCode, string> = {
@@ -56,7 +82,7 @@ export const PARSE_ERROR_MESSAGES: Record<ParseFailureCode, string> = {
 };
 
 type AttemptResult =
-  | { kind: "ok"; receipt: ParsedReceipt }
+  | { kind: "ok"; receipt: ParsedReceipt; costMicroUsd: number | null }
   | { kind: "rate_limited" }
   | { kind: "not_a_receipt" }
   | { kind: "failed"; failClass: "http" | "network" | "content"; detail: string };
@@ -67,10 +93,21 @@ async function attempt(
   imageDataUrl: string,
   groupCurrency: string
 ): Promise<AttemptResult> {
+  const url = apiUrl();
+  const onOpenRouter = url.includes("openrouter.ai");
+  // Free endpoints reject/ignore strict schemas unpredictably; paid models
+  // honor them and produce cleaner JSON. The salvage path below stays as
+  // belt-and-braces either way.
+  const structured = !model.endsWith(":free");
+  const provider: Record<string, unknown> = {};
+  // OPENROUTER_ZDR=true restricts routing to zero-data-retention endpoints.
+  if (onOpenRouter && process.env.OPENROUTER_ZDR === "true") provider.zdr = true;
+  if (onOpenRouter && structured) provider.require_parameters = true;
+
   let response: Response;
   let payload: unknown;
   try {
-    response = await fetch(API_URL, {
+    response = await fetch(url, {
       method: "POST",
       cache: "no-store",
       signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
@@ -88,6 +125,15 @@ async function attempt(
         // Free reasoning-mode models can spend the entire budget "thinking"
         // and return empty content; models without a toggle ignore this.
         reasoning: { enabled: false },
+        ...(structured
+          ? {
+              response_format: {
+                type: "json_schema",
+                json_schema: { name: "receipt", strict: false, schema: RECEIPT_JSON_SCHEMA },
+              },
+            }
+          : {}),
+        ...(Object.keys(provider).length > 0 ? { provider } : {}),
         messages: [
           {
             role: "user",
@@ -136,8 +182,54 @@ async function attempt(
     if (validated.notAReceipt) return { kind: "not_a_receipt" };
     return { kind: "failed", failClass: "content", detail: validated.error };
   }
-  return { kind: "ok", receipt: validated.receipt };
+  // OpenRouter includes usage.cost (USD) on every response; direct providers
+  // without it leave the cost null.
+  const usageCost = (payload as { usage?: { cost?: unknown } })?.usage?.cost;
+  const costMicroUsd =
+    typeof usageCost === "number" && Number.isFinite(usageCost)
+      ? Math.round(usageCost * 1_000_000)
+      : null;
+  return { kind: "ok", receipt: validated.receipt, costMicroUsd };
 }
+
+/** Wire schema mirror for structured outputs (permissive: extra fields ok,
+ *  every field nullable — the validator remains the authority). */
+const RECEIPT_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    merchant: { type: ["string", "null"] },
+    purchased_at: { type: ["string", "null"] },
+    currency: { type: ["string", "null"] },
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          raw_text: { type: ["string", "null"] },
+          name: { type: ["string", "null"] },
+          quantity: { type: ["number", "null"] },
+          unit_price_minor: { type: ["integer", "null"] },
+          total_price_minor: { type: ["integer", "null"] },
+          category: { type: ["string", "null"] },
+          tax_group: { type: ["string", "null"] },
+          line_type: { type: ["string", "null"] },
+        },
+        required: ["name", "total_price_minor"],
+      },
+    },
+    subtotal_minor: { type: ["integer", "null"] },
+    tax_minor: { type: ["integer", "null"] },
+    tip_minor: { type: ["integer", "null"] },
+    discounts_minor: { type: ["integer", "null"] },
+    total_minor: { type: ["integer", "null"] },
+    second_total_minor: { type: ["integer", "null"] },
+    second_total_currency: { type: ["string", "null"] },
+    printed_rate: { type: ["number", "null"] },
+    is_fiscal_receipt: { type: ["boolean", "null"] },
+    confidence: { type: ["number", "null"] },
+  },
+  required: ["items", "total_minor"],
+} as const;
 
 function modelLadder(): string[] {
   const primary = process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
@@ -153,7 +245,9 @@ export async function parseReceiptImage(
   contentType: string,
   groupCurrency: string
 ): Promise<ParseOutcome> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
+  // RECEIPT_API_KEY is the honest name when not on OpenRouter; the old
+  // variable keeps working.
+  const apiKey = process.env.RECEIPT_API_KEY || process.env.OPENROUTER_API_KEY;
   if (!apiKey) return { ok: false, code: "no_api_key", error: PARSE_ERROR_MESSAGES.no_api_key };
 
   const dataUrl = `data:${contentType};base64,${Buffer.from(image).toString("base64")}`;
@@ -176,6 +270,8 @@ export async function parseReceiptImage(
         reconciles: check.ok,
         diffCents: check.diffCents,
         model,
+        costMicroUsd: result.costMicroUsd,
+        latencyMs: Date.now() - started,
       };
     }
     if (result.kind === "not_a_receipt") {
