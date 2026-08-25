@@ -1,13 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { saveSettlement } from "@/app/actions";
+import { getPaymentProfileFor } from "@/app/payment-actions";
 import { CURRENCIES } from "@/lib/currencies";
 import { localTodayString } from "@/lib/format";
+import type { TKey } from "@/lib/i18n";
 import { amountPlaceholder, formatCents, parseAmount } from "@/lib/money";
+import { SETTLE_METHODS, type SettleMethod } from "@/lib/payment-details";
 import type { Debt } from "@/lib/simplify";
-import type { ExpenseDto, GroupDto } from "@/lib/types";
+import type { ExpenseDto, GroupDto, PaymentProfileDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
+import { HowToPayCard } from "./HowToPayCard";
 import { useT } from "./LocaleProvider";
 import { Modal } from "./Modal";
 
@@ -40,11 +44,35 @@ export function SettleModal({
   );
   const [currency, setCurrency] = useState(settlement?.currency ?? group.currency);
   const [date, setDate] = useState(settlement?.date ?? localTodayString());
+  const [method, setMethod] = useState<SettleMethod | null>(
+    settlement?.method && (SETTLE_METHODS as readonly string[]).includes(settlement.method)
+      ? (settlement.method as SettleMethod)
+      : null
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The recipient's payment profile drives the "how to pay" card. Only real
+  // accounts can have one; the server enforces the shared-group visibility.
+  const [recipientProfile, setRecipientProfile] = useState<PaymentProfileDto | null>(null);
 
   const amountCents = parseAmount(amountStr);
   const valid = amountCents !== null && amountCents > 0 && fromId && toId && fromId !== toId;
+
+  const toUserId = aliases.find((a) => a.id === toId)?.userId ?? null;
+  const payingMyself = toUserId !== null && toUserId === group.myUserId;
+  useEffect(() => {
+    setRecipientProfile(null);
+    if (!toUserId || toUserId === group.myUserId) return;
+    let cancelled = false;
+    getPaymentProfileFor(toUserId)
+      .then((p) => {
+        if (!cancelled) setRecipientProfile(p);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [toUserId, group.myUserId]);
 
   const save = async () => {
     if (!valid) return;
@@ -58,6 +86,7 @@ export function SettleModal({
       amountCents: amountCents!,
       currency,
       date,
+      method,
     });
     setBusy(false);
     if (result.ok) onClose();
@@ -100,6 +129,21 @@ export function SettleModal({
           <p className="text-sm text-red-600">{t("settle.differentPeople")}</p>
         )}
 
+        {recipientProfile &&
+          !payingMyself &&
+          (recipientProfile.iban || recipientProfile.blinkPhone || recipientProfile.revolutTag) && (
+            <HowToPayCard
+              profile={recipientProfile}
+              recipientName={toName}
+              amountCents={amountCents}
+              currency={currency}
+              groupName={group.name}
+            />
+          )}
+        {toUserId && !payingMyself && recipientProfile === null && (
+          <p className="text-xs text-gray-400">{t("payment.noProfile", { name: toName })}</p>
+        )}
+
         <div className="flex gap-2 max-sm:flex-wrap">
           <div className="w-28 shrink-0">
             <label className="label" htmlFor="settle-cur">{t("expenseModal.currency")}</label>
@@ -124,6 +168,28 @@ export function SettleModal({
           <div className="w-36 shrink-0 max-sm:w-full">
             <label className="label" htmlFor="settle-date">{t("expenseModal.date")}</label>
             <input id="settle-date" type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+        </div>
+
+        <div>
+          <p className="label">{t("settle.method")}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {SETTLE_METHODS.map((m) => (
+              <button
+                key={m}
+                type="button"
+                aria-pressed={method === m}
+                onClick={() => setMethod(method === m ? null : m)}
+                className={`cursor-pointer rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors ${
+                  method === m
+                    ? "border-transparent text-white"
+                    : "border-gray-300 bg-white text-gray-500 hover:bg-gray-50"
+                }`}
+                style={method === m ? { background: "var(--brand)" } : undefined}
+              >
+                {t(`method.${m}` as TKey)}
+              </button>
+            ))}
           </div>
         </div>
 

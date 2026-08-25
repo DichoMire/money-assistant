@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { acceptInvite } from "@/app/actions";
 import { countWord } from "@/lib/i18n";
+import { BrandMark } from "./BrandMark";
 import { useT } from "./LocaleProvider";
 
 export function JoinCard({
@@ -11,11 +13,14 @@ export function JoinCard({
   groupName,
   inviterName,
   peopleCount,
+  loginHref,
 }: {
   token: string;
   groupName: string;
   inviterName: string;
   peopleCount: number;
+  /** Pre-auth mode: the primary button links to login instead of accepting. */
+  loginHref?: string;
 }) {
   const router = useRouter();
   const t = useT();
@@ -40,12 +45,7 @@ export function JoinCard({
 
   return (
     <div className="card w-full max-w-sm px-6 py-8 text-center">
-      <span
-        className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl text-3xl font-bold text-white"
-        style={{ background: "var(--brand)" }}
-      >
-        $
-      </span>
+      <BrandMark />
       <p className="text-sm text-gray-500">
         <span className="font-semibold text-gray-700">{inviterName}</span> {t("join.invitedSuffix")}
       </p>
@@ -54,22 +54,44 @@ export function JoinCard({
         {peopleCount} {countWord(t, peopleCount, "count.person", "count.people")} {t("join.inGroup")}
       </p>
       {error && <p className="mt-3 text-sm font-medium text-red-600">{error}</p>}
-      <button
-        type="button"
-        className="btn btn-primary mt-6 w-full !py-2.5"
-        onClick={() => void join()}
-        disabled={busy}
-      >
-        {busy ? t("join.joining") : t("join.accept")}
-      </button>
-      <button
-        type="button"
-        className="btn btn-secondary mt-2 w-full"
-        onClick={decline}
-        disabled={busy}
-      >
-        {t("join.noThanks")}
-      </button>
+      {loginHref ? (
+        <>
+          <Link href={loginHref} className="btn btn-primary mt-6 block w-full !py-2.5">
+            {t("join.signInToJoin")}
+          </Link>
+          {/* A signup surface — the consent note renders here too (RFC 08). */}
+          <p className="mt-4 text-xs leading-relaxed text-gray-400">
+            {t("login.consentPre")}{" "}
+            <a className="underline hover:text-gray-600" href="/terms">
+              {t("login.consentTerms")}
+            </a>{" "}
+            {t("login.consentMid")}{" "}
+            <a className="underline hover:text-gray-600" href="/privacy">
+              {t("login.consentPrivacy")}
+            </a>
+            .
+          </p>
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            className="btn btn-primary mt-6 w-full !py-2.5"
+            onClick={() => void join()}
+            disabled={busy}
+          >
+            {busy ? t("join.joining") : t("join.accept")}
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary mt-2 w-full"
+            onClick={decline}
+            disabled={busy}
+          >
+            {t("join.noThanks")}
+          </button>
+        </>
+      )}
     </div>
   );
 }

@@ -13,6 +13,7 @@ import type { DeletionOverview } from "@/lib/types";
 import { LanguageToggle } from "./LanguageToggle";
 import { useT } from "./LocaleProvider";
 import { Modal } from "./Modal";
+import { PaymentDetailsModal } from "./PaymentDetailsModal";
 
 export function AccountSettings({ user }: { user: { name: string; email: string } }) {
   const t = useT();
@@ -22,6 +23,7 @@ export function AccountSettings({ user }: { user: { name: string; email: string 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
 
   const saveProfile = async () => {
     setProfileState("saving");
@@ -103,6 +105,22 @@ export function AccountSettings({ user }: { user: { name: string; email: string 
       </div>
 
       <div className="card px-5 py-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="font-semibold text-gray-800">{t("payment.myDetails")}</p>
+            <p className="mt-0.5 text-xs text-gray-400">{t("payment.detailsHint")}</p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary shrink-0"
+            onClick={() => setPaymentOpen(true)}
+          >
+            {t("payment.edit")}
+          </button>
+        </div>
+      </div>
+
+      <div className="card px-5 py-4">
         <p className="mb-1 font-semibold text-gray-800">{t("account.dataPrivacy")}</p>
         <p className="mb-3 text-xs text-gray-400">{t("account.exportHint")}</p>
         <div className="flex flex-wrap gap-2">
@@ -134,6 +152,7 @@ export function AccountSettings({ user }: { user: { name: string; email: string 
         </p>
       </div>
 
+      {paymentOpen && <PaymentDetailsModal onClose={() => setPaymentOpen(false)} />}
       {deleteOpen && (
         <DeleteAccountModal email={user.email} onClose={() => setDeleteOpen(false)} />
       )}

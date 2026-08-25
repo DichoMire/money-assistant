@@ -113,6 +113,25 @@ export const groupInvites = pgTable(
   (t) => [index("group_invites_group_idx").on(t.groupId)]
 );
 
+// One payment profile per account (not per alias — payment identity belongs
+// to the person and is reused across groups). Visible to users who share at
+// least one group with the owner, enforced server-side. Virtual members
+// deliberately have none (RFC 03).
+export const paymentProfiles = pgTable("payment_profiles", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** Normalized: uppercase, no spaces. */
+  iban: text("iban"),
+  /** Must match bank records (Verification of Payee). */
+  accountName: text("account_name"),
+  /** E.164, the number registered for blink P2P receiving. */
+  blinkPhone: text("blink_phone"),
+  /** revolut.me username (no URL, no @). */
+  revolutTag: text("revolut_tag"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // kind: "expense" | "settlement". A settlement ("A paid B") is stored as a
 // transaction with one payer (A) and one share (B owes the full amount), which
 // makes it flow through the same balance math as regular expenses.
@@ -129,6 +148,8 @@ export const expenses = pgTable(
     currency: text("currency").notNull(),
     date: date("date", { mode: "string" }).notNull(),
     splitMethod: text("split_method").notNull().default("equal"),
+    /** Settlements only: how the money moved (cash|bank|blink|revolut|other). */
+    method: text("method"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [index("expenses_group_date_idx").on(t.groupId, t.date)]

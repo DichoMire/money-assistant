@@ -11,6 +11,7 @@ import {
   getCircleForGroup,
   getInviteLink,
   leaveGroup,
+  regenerateInviteLink,
   removeMember,
   renameAlias,
   revokeInvite,
@@ -34,9 +35,21 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
   const [link, setLink] = useState<InviteLinkDto | null>(null);
   const [linkLoaded, setLinkLoaded] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  /** In-person joins: render the invite URL as a QR, client-side only — a
+   *  chart-API URL would leak the bearer token to a third party. */
+  const toggleQr = async (url: string) => {
+    if (qrUrl) {
+      setQrUrl(null);
+      return;
+    }
+    const QRCode = (await import("qrcode")).default;
+    setQrUrl(await QRCode.toDataURL(url, { errorCorrectionLevel: "M", scale: 5 }));
+  };
 
   const [newVirtualName, setNewVirtualName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -173,12 +186,53 @@ export function MembersModal({ group, onClose }: { group: GroupDto; onClose: () 
                       className="btn btn-danger shrink-0 !px-3 !py-1.5 !text-xs"
                       disabled={busy}
                       onClick={async () => {
-                        if (await run(() => revokeInvite(link.id))) reloadInviteData();
+                        if (await run(() => revokeInvite(link.id))) {
+                          setQrUrl(null);
+                          reloadInviteData();
+                        }
                       }}
                     >
                       {t("members.revoke")}
                     </button>
                   </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className="btn btn-secondary !px-3 !py-1 !text-xs"
+                      onClick={() => void toggleQr(link.url)}
+                    >
+                      {qrUrl ? t("members.hideQr") : t("members.showQr")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary !px-3 !py-1 !text-xs"
+                      disabled={busy}
+                      onClick={async () => {
+                        setBusy(true);
+                        setError(null);
+                        try {
+                          setLink(await regenerateInviteLink(group.id));
+                          setQrUrl(null);
+                        } catch {
+                          setError(t("members.couldNotCreateLink"));
+                        }
+                        setBusy(false);
+                      }}
+                    >
+                      {t("members.newLink")}
+                    </button>
+                  </div>
+                  {qrUrl && (
+                    <div className="mt-2">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={qrUrl}
+                        alt={t("members.qrAlt")}
+                        className="h-44 w-44 rounded-lg border border-gray-200 bg-white p-1"
+                      />
+                      <p className="mt-1 text-xs text-gray-400">{t("members.qrHint")}</p>
+                    </div>
+                  )}
                   <p className="mt-1 text-xs text-gray-400">
                     {t("members.linkValidUntil", { date: formatDate(link.expiresAt, locale) })}
                   </p>

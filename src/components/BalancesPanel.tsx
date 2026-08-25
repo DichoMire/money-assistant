@@ -1,8 +1,13 @@
 "use client";
 
+import { useState } from "react";
+import { getMyPaymentProfile } from "@/app/payment-actions";
+import { formatDate } from "@/lib/format";
 import { formatCents } from "@/lib/money";
+import { buildBalanceSummaryText, buildPaymentRequestText } from "@/lib/share-text";
 import { ROUNDING_WRITE_OFF_CENTS, type Debt } from "@/lib/simplify";
-import type { GroupDto } from "@/lib/types";
+import { todayString } from "@/lib/rates";
+import type { GroupDto, PaymentProfileDto } from "@/lib/types";
 import { Avatar } from "./Avatar";
 import { useLocale, useT } from "./LocaleProvider";
 
@@ -25,6 +30,69 @@ export function BalancesPanel({
   const name = (id: string) => names.get(id) ?? "?";
   const debts = simplify ? data.simplifiedDebts : data.pairwiseDebts;
   const money = (cents: number) => formatCents(cents, data.currency, locale);
+  const myAliasId = data.aliases.find((a) => a.userId === data.myUserId)?.id ?? null;
+  const [shared, setShared] = useState<string | null>(null);
+  // Cached across clicks; undefined = not fetched yet.
+  const [myProfile, setMyProfile] = useState<PaymentProfileDto | null | undefined>(undefined);
+
+  /** Share via the OS sheet (reaches Viber natively); desktop falls back to copy. */
+  const shareText = async (key: string, text: string) => {
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ text });
+        return;
+      } catch {
+        return; // user canceled the sheet — not an error
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setShared(key);
+      setTimeout(() => setShared((s) => (s === key ? null : s)), 1500);
+    } catch {}
+  };
+
+  const groupUrl = () =>
+    typeof window !== "undefined" ? `${window.location.origin}/groups/${data.id}` : "";
+
+  const shareSummary = () => {
+    void shareText(
+      "summary",
+      buildBalanceSummaryText(t, {
+        groupName: data.name,
+        dateText: formatDate(todayString(), locale),
+        currency: data.currency,
+        debts: debts.map((d) => ({
+          fromName: name(d.fromAliasId),
+          toName: name(d.toAliasId),
+          amountCents: d.amountCents,
+        })),
+        url: `${groupUrl()}?ref=summary-share`,
+      })
+    );
+  };
+
+  const requestPayment = async (d: Debt) => {
+    let profile = myProfile;
+    if (profile === undefined) {
+      try {
+        profile = await getMyPaymentProfile();
+      } catch {
+        profile = null;
+      }
+      setMyProfile(profile);
+    }
+    await shareText(
+      `req-${d.fromAliasId}`,
+      buildPaymentRequestText(t, {
+        groupName: data.name,
+        amountCents: d.amountCents,
+        currency: data.currency,
+        profile: profile ?? null,
+        url: groupUrl(),
+      })
+    );
+  };
 
   // Chips are derived from the payment list on display, so they always agree
   // with it exactly — including after tiny rounding write-offs.
@@ -111,9 +179,19 @@ export function BalancesPanel({
       </div>
 
       <div className="card px-4 py-4">
-        <h2 className="mb-1 font-bold text-gray-800">
-          {simplify ? t("balances.suggestedPayments") : t("balances.whoOwesWhom")}
-        </h2>
+        <div className="flex items-start justify-between gap-2">
+          <h2 className="mb-1 font-bold text-gray-800">
+            {simplify ? t("balances.suggestedPayments") : t("balances.whoOwesWhom")}
+          </h2>
+          <button
+            type="button"
+            className="btn btn-secondary shrink-0 !px-2.5 !py-1 !text-xs"
+            onClick={() => shareSummary()}
+            title={t("share.summaryTitle")}
+          >
+            {shared === "summary" ? t("payment.copied") : t("share.summaryButton")}
+          </button>
+        </div>
         <p className="mb-3 text-xs text-gray-400">
           {simplify ? t("balances.simplifiedHint") : t("balances.pairwiseHint")}
         </p>
@@ -135,6 +213,18 @@ export function BalancesPanel({
                 <span className="font-bold text-gray-800">
                   {money(d.amountCents)}
                 </span>
+                {/* Creditor-side "request payment" share — only on rows where
+                    the signed-in user is the one owed money. */}
+                {myAliasId !== null && d.toAliasId === myAliasId && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary !px-2 !py-1 !text-xs"
+                    title={t("payment.requestShare")}
+                    onClick={() => void requestPayment(d)}
+                  >
+                    {shared === `req-${d.fromAliasId}` ? t("payment.copied") : "📤"}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn btn-secondary !px-2.5 !py-1 !text-xs"

@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { auth, devLoginEnabled, hasGoogleAuth, signIn } from "@/auth";
+import { BrandMark } from "@/components/BrandMark";
 import { LanguageToggle } from "@/components/LanguageToggle";
+import { OpenInBrowserHint } from "@/components/OpenInBrowserHint";
 import { getT } from "@/lib/i18n-server";
 
 export default async function LoginPage({
@@ -24,14 +26,14 @@ export default async function LoginPage({
         <div className="absolute top-3 right-3">
           <LanguageToggle />
         </div>
-        <span
-          className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl text-3xl font-bold text-white"
-          style={{ background: "var(--brand)" }}
-        >
-          $
-        </span>
+        <BrandMark />
         <h1 className="text-xl font-bold text-gray-800">Money Assistant</h1>
         <p className="mt-1 mb-6 text-sm text-gray-500">{t("app.tagline")}</p>
+
+        {/* Viber/Messenger in-app browsers can dead-end at Google OAuth
+            (disallowed_useragent) — every Viber-opened invite for a
+            logged-out user lands here, so the escape hint goes first. */}
+        <OpenInBrowserHint />
 
         {hasGoogleAuth && (
           <form
@@ -85,6 +87,16 @@ export default async function LoginPage({
             <code>AUTH_GOOGLE_SECRET</code> {t("login.notConfigured3")}
           </p>
         )}
+
+        {/* Trust strip — plain-language answers to the three fears the
+            research surfaced (bank access, data, who made this). */}
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-gray-400">
+          <span>{t("login.trust1")}</span>
+          <span aria-hidden>·</span>
+          <span>{t("login.trust2")}</span>
+          <span aria-hidden>·</span>
+          <span>{t("login.trust3")}</span>
+        </div>
 
         {/* Sign-in-wrap consent (contract basis — accept terms, acknowledge
             the privacy notice); no checkbox by design (RFC 08 §3.4). */}

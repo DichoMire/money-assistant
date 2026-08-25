@@ -100,6 +100,14 @@ export function ExpenseDetailModal({
                   {t("detail.split", { label: t(`splitMethod.${expense.splitMethod}` as TKey) })}
                 </>
               )}
+              {isSettlement && expense.method && (
+                <>
+                  {" · "}
+                  <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">
+                    {t(`method.${expense.method}` as TKey)}
+                  </span>
+                </>
+              )}
               {expense.scanId && (
                 <>
                   {" · "}

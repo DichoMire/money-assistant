@@ -241,6 +241,7 @@ export async function loadGroupData(groupId: string, userId: string): Promise<Gr
       // row was used as a stand-in — rendered with a "≈" hint.
       approxRate: convertedCents !== null && rate.approx,
       scanId: scanByExpense.get(e.id) ?? null,
+      method: e.method,
     };
   });
 
@@ -333,6 +334,35 @@ export async function loadCircle(userId: string): Promise<CircleUserDto[]> {
     seen.set(user.id, { userId: user.id, name: user.name ?? user.email, email: user.email });
   }
   return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Public (pre-auth) invite preview for the join page and its OG metadata:
+ * group name, inviter, people count — exactly what the page itself shows to
+ * any token holder. Invalid/expired tokens return null so scrapers learn
+ * nothing beyond "not valid".
+ */
+export async function loadInvitePublicPreview(
+  token: string
+): Promise<{ groupName: string; inviterName: string; peopleCount: number } | null> {
+  const db = await getDb();
+  const inviteRows = await db.select().from(groupInvites).where(eq(groupInvites.token, token));
+  const invite = inviteRows[0];
+  if (!invite || !inviteIsUsable(invite)) return null;
+  const [groupRows, inviterRows, aliasCount] = await Promise.all([
+    db.select().from(groups).where(eq(groups.id, invite.groupId)),
+    db.select().from(users).where(eq(users.id, invite.createdBy)),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(aliases)
+      .where(eq(aliases.groupId, invite.groupId)),
+  ]);
+  if (!groupRows[0]) return null;
+  return {
+    groupName: groupRows[0].name,
+    inviterName: inviterRows[0] ? (inviterRows[0].name ?? inviterRows[0].email.split("@")[0]) : "?",
+    peopleCount: aliasCount[0]?.count ?? 0,
+  };
 }
 
 /** Everything the /join/[token] page needs to render, permission-checked. */

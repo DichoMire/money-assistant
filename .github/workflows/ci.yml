@@ -23,4 +23,5 @@ jobs:
       - run: npm run test:receipt-db
       - run: npm run test:reliability
       - run: npm run test:account
+      - run: npm run test:epc
       - run: npm run test:smoke

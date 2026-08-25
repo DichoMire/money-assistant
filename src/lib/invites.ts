@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 
-export const INVITE_TTL_DAYS = 7;
+/** 30 days: trips are planned weeks ahead; regenerate + revoke cover the
+ *  security delta of the longer bearer-token window (RFC 06 §3.e). */
+export const INVITE_TTL_DAYS = 30;
 
 export function newInviteToken(): string {
   return randomBytes(24).toString("base64url");
@@ -10,7 +12,8 @@ export function inviteExpiry(from = new Date()): Date {
   return new Date(from.getTime() + INVITE_TTL_DAYS * 86_400_000);
 }
 
-/** Absolute base URL of the deployed app, for links placed in emails. */
+/** Absolute base URL of the deployed app — used for invite links, share
+ *  payloads, emails, and site metadata. */
 export function appBaseUrl(): string {
   if (process.env.APP_URL) return process.env.APP_URL.replace(/\/+$/, "");
   if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {

@@ -4,6 +4,7 @@ import { signOut } from "@/auth";
 import { getDb } from "@/db";
 import { users } from "@/db/schema";
 import { getT } from "@/lib/i18n-server";
+import { BrandMark } from "./BrandMark";
 import { LanguageToggle } from "./LanguageToggle";
 import { PoliciesBanner } from "./PoliciesBanner";
 
@@ -29,12 +30,7 @@ export async function AppHeader({ user }: { user: { name?: string | null; email?
     <header className="border-b border-gray-200 bg-white pt-[env(safe-area-inset-top)]">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-3 py-3 sm:px-4">
         <Link href="/" className="flex items-center gap-2 text-lg font-bold text-gray-800">
-          <span
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-white"
-            style={{ background: "var(--brand)" }}
-          >
-            $
-          </span>
+          <BrandMark size="sm" />
           Money Assistant
         </Link>
         {/* shrink-0 + nowrap: header controls keep their one-line size; only

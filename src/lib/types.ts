@@ -49,6 +49,8 @@ export type ExpenseDto = {
   approxRate: boolean;
   /** The receipt scan this expense was converted from, if any. */
   scanId: string | null;
+  /** Settlements only: how the money moved (cash|bank|blink|revolut|other). */
+  method: string | null;
 };
 
 export type RatesInfo = {
@@ -112,9 +114,22 @@ export type SettlementInput = {
   amountCents: number;
   currency: string;
   date: string;
+  /** How the money moved (cash|bank|blink|revolut|other) — optional. */
+  method: string | null;
 };
 
 export type ActionResult = { ok: true; id?: string } | { ok: false; error: string };
+
+// ---------- Payment profiles (RFC 03) ----------
+
+export type PaymentProfileDto = {
+  iban: string | null;
+  accountName: string | null;
+  blinkPhone: string | null;
+  revolutTag: string | null;
+  /** ISO date of the last update — shown as "updated {date}" on the card. */
+  updatedAt: string;
+};
 
 // ---------- Account (settings / GDPR) ----------
 

@@ -31,6 +31,7 @@ import { getMembership, loadCircle } from "@/lib/group-data";
 import { mergeAliasReferences } from "@/lib/merge-alias";
 import { RATE_LIMITS, rateLimit } from "@/lib/rate-limit";
 import { inviteExpiry, inviteIsUsable, joinUrl, newInviteToken } from "@/lib/invites";
+import { isSettleMethod } from "@/lib/payment-details";
 import { convertCents, isFixedLegPair } from "@/lib/rates";
 import { refreshRates } from "@/lib/rates-fetch";
 import { computeShares, validatePayers, SPLIT_METHODS } from "@/lib/split";
@@ -567,6 +568,25 @@ export async function createInviteLink(groupId: string): Promise<InviteLinkDto> 
   return toLinkDto(rows[0]);
 }
 
+/** Revoke the active link and mint a fresh one (owner-only). */
+export async function regenerateInviteLink(groupId: string): Promise<InviteLinkDto> {
+  const user = await requireUser();
+  const db = await getDb();
+  await requireRole(db, groupId, user.id, "owner");
+  await db
+    .update(groupInvites)
+    .set({ status: "revoked" })
+    .where(and(eq(groupInvites.groupId, groupId), eq(groupInvites.status, "active")));
+  const rows = await db
+    .insert(groupInvites)
+    .values({ groupId, token: newInviteToken(), createdBy: user.id, expiresAt: inviteExpiry() })
+    .returning();
+  await logActivity(db, groupId, user, "invite.created", {
+    expiresAt: rows[0].expiresAt.toISOString().slice(0, 10),
+  });
+  return toLinkDto(rows[0]);
+}
+
 export async function revokeInvite(inviteId: string): Promise<ActionResult> {
   try {
     const user = await requireUser();
@@ -787,6 +807,7 @@ export async function saveSettlement(input: SettlementInput): Promise<ActionResu
         let oldSettlement: typeof expenses.$inferSelect | null = null;
         let oldFromId: string | null = null;
         let oldToId: string | null = null;
+        const method = isSettleMethod(input.method) ? input.method : null;
         if (expenseId) {
           const existing = await tx
             .select()
@@ -802,7 +823,7 @@ export async function saveSettlement(input: SettlementInput): Promise<ActionResu
           oldToId = oldShares[0]?.aliasId ?? null;
           await tx
             .update(expenses)
-            .set({ amountCents: input.amountCents, currency: input.currency, date: input.date })
+            .set({ amountCents: input.amountCents, currency: input.currency, date: input.date, method })
             .where(eq(expenses.id, expenseId));
           await tx.delete(expensePayers).where(eq(expensePayers.expenseId, expenseId));
           await tx.delete(expenseShares).where(eq(expenseShares.expenseId, expenseId));
@@ -812,11 +833,14 @@ export async function saveSettlement(input: SettlementInput): Promise<ActionResu
             .values({
               groupId: input.groupId,
               kind: "settlement",
+              // Stored sentinel, never displayed (the UI renders
+              // t("expenses.payment") instead).
               description: "Payment",
               amountCents: input.amountCents,
               currency: input.currency,
               date: input.date,
               splitMethod: "exact",
+              method,
             })
             .returning({ id: expenses.id });
           expenseId = rows[0].id;
