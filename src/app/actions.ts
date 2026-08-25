@@ -405,10 +405,10 @@ export async function attachAlias(aliasId: string, targetUserId: string): Promis
       await tx.update(aliases).set({ userId: targetUserId }).where(eq(aliases.id, alias.id));
     });
     const targetRows = await db.select().from(users).where(eq(users.id, targetUserId));
+    // Names only — emails never go into the activity log (GDPR minimization).
     await logActivity(db, alias.groupId, user, "alias.attached", {
       aliasName: alias.name,
-      accountName: targetRows[0]?.name ?? targetRows[0]?.email ?? "?",
-      accountEmail: targetRows[0]?.email ?? "?",
+      accountName: targetRows[0]?.name ?? targetRows[0]?.email?.split("@")[0] ?? "?",
       merged: !!existing,
     });
     revalidateGroup(alias.groupId);
@@ -442,8 +442,7 @@ export async function removeMember(groupId: string, targetUserId: string): Promi
     await detachMember(db, groupId, targetUserId);
     const targetRows = await db.select().from(users).where(eq(users.id, targetUserId));
     await logActivity(db, groupId, user, "member.removed", {
-      name: targetRows[0]?.name ?? targetRows[0]?.email ?? "?",
-      email: targetRows[0]?.email ?? "?",
+      name: targetRows[0]?.name ?? targetRows[0]?.email?.split("@")[0] ?? "?",
     });
     revalidateGroup(groupId);
     return { ok: true };
@@ -461,7 +460,7 @@ export async function leaveGroup(groupId: string): Promise<ActionResult> {
       return { ok: false, error: (await getT())("errors.ownerCannotLeave") };
     }
     await detachMember(db, groupId, user.id);
-    await logActivity(db, groupId, user, "member.left", { email: user.email });
+    await logActivity(db, groupId, user, "member.left", { name: user.name });
     revalidatePath("/");
     return { ok: true };
   } catch (e) {
@@ -502,8 +501,7 @@ export async function addCircleMember(groupId: string, targetUserId: string): Pr
       name: target.name ?? target.email,
     });
     await logActivity(db, groupId, user, "member.joined", {
-      name: target.name ?? target.email,
-      email: target.email,
+      name: target.name ?? target.email.split("@")[0],
       via: "circle",
     });
     revalidateGroup(groupId);
@@ -608,7 +606,6 @@ export async function acceptInvite(token: string): Promise<ActionResult> {
     await joinGroup(invite.groupId, user);
     await logActivity(db, invite.groupId, user, "member.joined", {
       name: user.name,
-      email: user.email,
       via: "link",
     });
     revalidateGroup(invite.groupId);

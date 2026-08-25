@@ -6,7 +6,7 @@ import { formatDate } from "@/lib/format";
 import type { Locale, TFunc, TKey } from "@/lib/i18n";
 import { formatCents } from "@/lib/money";
 import { SPLIT_METHODS } from "@/lib/split";
-import type { ActivityEntryDto, GroupDto } from "@/lib/types";
+import { ACTIVITY_TOMBSTONE, type ActivityEntryDto, type GroupDto } from "@/lib/types";
 import { useLocale, useT } from "./LocaleProvider";
 import { Modal } from "./Modal";
 
@@ -24,6 +24,8 @@ function describe(entry: ActivityEntryDto, t: TFunc, locale: Locale): string {
       return t("activity.currencyChanged", { from: s("from"), to: s("to") });
     case "group.simplify_toggled":
       return d.on ? t("activity.simplifyOn") : t("activity.simplifyOff");
+    case "group.ownership_transferred":
+      return t("activity.ownershipTransferred", { name: s("name") });
     case "alias.added":
       return t("activity.aliasAdded", { name: s("name") });
     case "alias.renamed":
@@ -35,17 +37,16 @@ function describe(entry: ActivityEntryDto, t: TFunc, locale: Locale): string {
         t("activity.aliasAttached", {
           alias: s("aliasName"),
           account: s("accountName"),
-          email: s("accountEmail"),
         }) + (d.merged ? t("activity.mergedHistories") : "")
       );
     case "member.joined":
       return d.via === "circle"
-        ? t("activity.memberJoinedCircle", { name: s("name"), email: s("email") })
+        ? t("activity.memberJoinedCircle", { name: s("name") })
         : t("activity.memberJoinedLink");
     case "member.left":
       return t("activity.memberLeft");
     case "member.removed":
-      return t("activity.memberRemoved", { name: s("name"), email: s("email") });
+      return t("activity.memberRemoved", { name: s("name") });
     case "invite.created":
       return t("activity.inviteCreated", { date: formatDate(s("expiresAt"), locale) });
     case "invite.revoked":
@@ -169,7 +170,11 @@ export function ActivityModal({ group, onClose }: { group: GroupDto; onClose: ()
                   {timestamp(entry.createdAt, locale)}
                 </span>
                 <span className="min-w-0 flex-1 text-gray-600">
-                  <span className="font-semibold text-gray-800">{entry.actorName}</span>{" "}
+                  <span className="font-semibold text-gray-800">
+                    {entry.actorName === ACTIVITY_TOMBSTONE
+                      ? t("activity.deletedUser")
+                      : entry.actorName}
+                  </span>{" "}
                   {describe(entry, t, locale)}
                   {Array.isArray(entry.details.changes) && entry.details.changes.length > 0 && (
                     <span className="mt-0.5 block text-xs text-gray-400">

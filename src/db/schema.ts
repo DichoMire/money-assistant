@@ -35,14 +35,22 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   name: text("name"),
   image: text("image"),
+  /** Export throttle: refuse a second data export within 10 minutes. */
+  lastExportAt: timestamp("last_export_at"),
+  /** When the user dismissed the "we published terms/privacy" notice. */
+  policiesAcceptedAt: timestamp("policies_accepted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// The owner FK is RESTRICT on purpose: account deletion explicitly deletes or
+// transfers owned groups first (account-actions.ts), so the only thing a
+// cascade could ever do is let a raw admin DELETE silently destroy shared
+// groups. Make the database refuse instead.
 export const groups = pgTable("groups", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
     .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
+    .references(() => users.id, { onDelete: "restrict" }),
   name: text("name").notNull(),
   currency: text("currency").notNull().default("EUR"),
   simplifyDebts: boolean("simplify_debts").notNull().default(false),
@@ -213,6 +221,13 @@ export const receiptScans = pgTable(
     reconciles: boolean("reconciles").notNull().default(false),
     model: text("model"),
     imageHash: text("image_hash").notNull(),
+    /**
+     * Data minimization (RFC 04/08): the photo exists to serve the review UI
+     * while the scan is a draft. On conversion it is deleted unless the user
+     * checked "keep the photo"; stale drafts are purged by the daily cron.
+     * imageHash stays either way, so group-level dedupe keeps working.
+     */
+    keepImage: boolean("keep_image").notNull().default(false),
     expenseId: uuid("expense_id").references(() => expenses.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),

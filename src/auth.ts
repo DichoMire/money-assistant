@@ -1,4 +1,5 @@
 import NextAuth from "next-auth";
+import { sql } from "drizzle-orm";
 import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
 import type { Provider } from "next-auth/providers";
@@ -30,10 +31,19 @@ async function ensureUser(email: string, name?: string | null, image?: string | 
   const db = await getDb();
   const rows = await db
     .insert(users)
-    .values({ email, name: name ?? null, image: image ?? null })
+    // New accounts sign in through the login page, whose consent line covers
+    // the policies — stamp acceptance at creation. Existing rows keep their
+    // value (the conflict-set below doesn't touch it), so pre-policy accounts
+    // see the one-time banner instead.
+    .values({ email, name: name ?? null, image: image ?? null, policiesAcceptedAt: new Date() })
     .onConflictDoUpdate({
       target: users.email,
-      set: { name: name ?? null, image: image ?? null },
+      // COALESCE: a provider that sends no profile (e.g. an email magic link)
+      // must never null-wipe the name/avatar Google provided earlier.
+      set: {
+        name: sql`COALESCE(EXCLUDED.name, ${users.name})`,
+        image: sql`COALESCE(EXCLUDED.image, ${users.image})`,
+      },
     })
     .returning();
   return rows[0];

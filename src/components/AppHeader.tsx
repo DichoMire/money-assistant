@@ -1,10 +1,30 @@
 import Link from "next/link";
+import { eq } from "drizzle-orm";
 import { signOut } from "@/auth";
+import { getDb } from "@/db";
+import { users } from "@/db/schema";
 import { getT } from "@/lib/i18n-server";
 import { LanguageToggle } from "./LanguageToggle";
+import { PoliciesBanner } from "./PoliciesBanner";
+
+/** True when the account has not yet dismissed the policies notice. */
+async function needsPoliciesNotice(email?: string | null): Promise<boolean> {
+  if (!email) return false;
+  try {
+    const db = await getDb();
+    const rows = await db
+      .select({ acceptedAt: users.policiesAcceptedAt })
+      .from(users)
+      .where(eq(users.email, email));
+    return rows.length > 0 && rows[0].acceptedAt === null;
+  } catch {
+    return false; // the banner must never break the header
+  }
+}
 
 export async function AppHeader({ user }: { user: { name?: string | null; email?: string | null } }) {
   const t = await getT();
+  const showPolicies = await needsPoliciesNotice(user.email);
   return (
     <header className="border-b border-gray-200 bg-white pt-[env(safe-area-inset-top)]">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-3 py-3 sm:px-4">
@@ -44,6 +64,7 @@ export async function AppHeader({ user }: { user: { name?: string | null; email?
           </form>
         </div>
       </div>
+      {showPolicies && <PoliciesBanner />}
     </header>
   );
 }

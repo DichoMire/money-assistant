@@ -33,7 +33,22 @@ export async function GET(request: Request) {
     await db
       .delete(rateLimits)
       .where(lt(rateLimits.windowStart, sql`now() - interval '2 days'`));
-    const result = { ok: true, ...rates, expiredInvites: expired.length };
+    // Receipt-image retention (RFC 04/08): converted scans keep their photo
+    // only when the user asked to; draft photos live at most 30 days. The
+    // parsed items (the user's actual data) are never touched here.
+    const purged = await db.execute(sql`
+      DELETE FROM receipt_scan_images WHERE scan_id IN (
+        SELECT id FROM receipt_scans
+        WHERE (expense_id IS NOT NULL AND keep_image = false)
+           OR (expense_id IS NULL AND updated_at < now() - interval '30 days')
+      )
+    `);
+    const result = {
+      ok: true,
+      ...rates,
+      expiredInvites: expired.length,
+      purgedImages: (purged as unknown as { rowCount?: number }).rowCount ?? 0,
+    };
     // Dead-man's switch: ping an external monitor on SUCCESS only, so silence
     // (a failing or never-running cron) raises an alert there. Optional.
     if (process.env.CRON_PING_URL) {

@@ -116,6 +116,28 @@ export type SettlementInput = {
 
 export type ActionResult = { ok: true; id?: string } | { ok: false; error: string };
 
+// ---------- Account (settings / GDPR) ----------
+
+/**
+ * Sentinel stored in activity_log.actor_name (and name-bearing details) when
+ * an account is deleted. Never a human-language string — the renderer maps it
+ * to the viewer's locale ("изтрит потребител" / "deleted user").
+ */
+export const ACTIVITY_TOMBSTONE = "__deleted__";
+
+export type DeletionOverview = {
+  /** Groups where the user is a plain member — they will be detached. */
+  memberGroups: { id: string; name: string }[];
+  /** Owned groups with no other real member — deleted outright. */
+  soloGroups: { id: string; name: string }[];
+  /** Owned groups with other members — must be transferred or deleted first. */
+  conflictedGroups: {
+    id: string;
+    name: string;
+    members: { userId: string; name: string }[];
+  }[];
+};
+
 // ---------- Receipt scanning ----------
 
 export type ScanItemShareDto = { aliasId: string; exactCents: number | null };
@@ -159,6 +181,10 @@ export type ScanDetailDto = {
   model: string | null;
   /** Linked expense after conversion (null = draft, or expense was deleted). */
   expenseId: string | null;
+  /** False once the photo has been deleted (post-convert or retention sweep). */
+  hasImage: boolean;
+  /** User opted to keep the photo after conversion. */
+  keepImage: boolean;
   items: ScanItemDto[];
   createdAt: string;
 };
@@ -188,6 +214,8 @@ export type ScanEditInput = {
   /** See ScanDetailDto — non-null switches the discount to percent mode. */
   discountPercentBp: number | null;
   totalCents: number;
+  /** Keep the photo after conversion (default: delete — data minimization). */
+  keepImage: boolean;
   items: ScanItemInput[];
 };
 

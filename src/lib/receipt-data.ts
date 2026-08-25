@@ -1,6 +1,6 @@
 import { asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { aliases, receiptItemShares, receiptItems, receiptScans } from "@/db/schema";
+import { aliases, receiptItemShares, receiptItems, receiptScanImages, receiptScans } from "@/db/schema";
 import { ASSIGN_MODES, type AssignMode } from "./receipt-convert";
 import type { ScanDetailDto, ScanItemDto, ScanSummaryDto } from "./types";
 
@@ -47,13 +47,17 @@ export async function loadScanDetail(
   const scan = scanRows[0];
   if (!scan || scan.groupId !== groupId) return null;
 
-  const [itemRows, aliasRows] = await Promise.all([
+  const [itemRows, aliasRows, imageRows] = await Promise.all([
     db
       .select()
       .from(receiptItems)
       .where(eq(receiptItems.scanId, scanId))
       .orderBy(asc(receiptItems.position)),
     db.select({ id: aliases.id }).from(aliases).where(eq(aliases.groupId, groupId)),
+    db
+      .select({ scanId: receiptScanImages.scanId })
+      .from(receiptScanImages)
+      .where(eq(receiptScanImages.scanId, scanId)),
   ]);
   const liveAliasIds = new Set(aliasRows.map((a) => a.id));
 
@@ -107,6 +111,8 @@ export async function loadScanDetail(
     reconciles: scan.reconciles,
     model: scan.model,
     expenseId: scan.expenseId,
+    hasImage: imageRows.length > 0,
+    keepImage: scan.keepImage,
     items,
     createdAt: scan.createdAt.toISOString(),
   };

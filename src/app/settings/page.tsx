@@ -18,7 +18,12 @@ export default async function SettingsPage() {
           {t("account.back")}
         </Link>
         <h1 className="mt-2 mb-6 text-2xl font-bold text-gray-800">{t("account.title")}</h1>
-        <AccountSettings />
+        <AccountSettings
+          user={{
+            name: session.user.name ?? "",
+            email: session.user.email ?? "",
+          }}
+        />
       </main>
     </div>
   );

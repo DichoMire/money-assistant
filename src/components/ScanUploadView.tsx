@@ -7,9 +7,13 @@ import { deleteScan, parseReceipt } from "@/app/receipt-actions";
 import { formatDate } from "@/lib/format";
 import { countWord, type TFunc } from "@/lib/i18n";
 import { formatCents } from "@/lib/money";
+import { RECEIPT_LLM_VENDOR } from "@/lib/receipt-schema";
 import type { GroupDto, ScanSummaryDto } from "@/lib/types";
 import { useConfirm } from "./ConfirmModal";
 import { useLocale, useT } from "./LocaleProvider";
+
+/** localStorage flag: the first-use "photo goes to an AI service" dialog. */
+const LLM_NOTICE_SEEN_KEY = "scan-llm-notice-v1";
 
 // Long grocery receipts need vertical resolution — a 45-line receipt squeezed
 // to 1600px makes the text unreadable for the model. Receipt-shaped images
@@ -84,6 +88,28 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
       setError(t("scan.chooseImage"));
       return;
     }
+    // First-use transparency dialog (Art. 13): the photo goes to a third-party
+    // AI service. Device-scoped memory is fine — the permanent caption under
+    // the upload card is the layer that satisfies the transparency duty.
+    let seen = false;
+    try {
+      seen = localStorage.getItem(LLM_NOTICE_SEEN_KEY) === "1";
+    } catch {
+      seen = true; // storage unavailable — don't trap the user in a loop
+    }
+    if (!seen) {
+      ask(t("scan.llmFirstUse", { vendor: RECEIPT_LLM_VENDOR }), () => {
+        try {
+          localStorage.setItem(LLM_NOTICE_SEEN_KEY, "1");
+        } catch {}
+        void processFile(file);
+      });
+      return;
+    }
+    await processFile(file);
+  };
+
+  const processFile = async (file: File) => {
     setBusy(t("scan.preparing"));
     try {
       const jpeg = await downscaleToJpeg(file, t);
@@ -192,6 +218,14 @@ export function ScanUploadView({ group, scans }: { group: GroupDto; scans: ScanS
           </>
         )}
       </div>
+
+      {/* Permanent transparency caption (Art. 13): where the photo goes. */}
+      <p className="mt-2 text-center text-xs text-gray-400">
+        {t("scan.llmNotice", { vendor: RECEIPT_LLM_VENDOR })}{" "}
+        <Link href="/privacy" className="underline hover:text-gray-600">
+          {t("account.privacyPolicy")}
+        </Link>
+      </p>
 
       {error && (
         <p className="mt-3 text-sm font-medium text-red-600">

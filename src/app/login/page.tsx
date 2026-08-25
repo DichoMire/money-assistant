@@ -85,6 +85,20 @@ export default async function LoginPage({
             <code>AUTH_GOOGLE_SECRET</code> {t("login.notConfigured3")}
           </p>
         )}
+
+        {/* Sign-in-wrap consent (contract basis — accept terms, acknowledge
+            the privacy notice); no checkbox by design (RFC 08 §3.4). */}
+        <p className="mt-5 text-xs leading-relaxed text-gray-400">
+          {t("login.consentPre")}{" "}
+          <a className="underline hover:text-gray-600" href="/terms">
+            {t("login.consentTerms")}
+          </a>{" "}
+          {t("login.consentMid")}{" "}
+          <a className="underline hover:text-gray-600" href="/privacy">
+            {t("login.consentPrivacy")}
+          </a>
+          . {t("login.consentAge")}
+        </p>
       </div>
     </main>
   );

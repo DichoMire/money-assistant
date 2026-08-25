@@ -123,6 +123,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
   );
   const [totalStr, setTotalStr] = useState(centsToStr(scan.totalCents));
   const [payerAliasId, setPayerAliasId] = useState(myAliasId ?? aliases[0]?.id ?? "");
+  const [keepImage, setKeepImage] = useState(scan.keepImage);
   const [participantIds, setParticipantIds] = useState<string[]>(allAliasIds);
   const [assignItemKey, setAssignItemKey] = useState<string | null>(null);
   const [removeItemKey, setRemoveItemKey] = useState<string | null>(null);
@@ -283,6 +284,7 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
     discountsCents: discountsCents!,
     discountPercentBp: discountMode === "percent" ? discountPercentBp! : null,
     totalCents: totalCents!,
+    keepImage,
     items: items.map((it, position) => ({
       position,
       rawText: it.rawText,
@@ -438,18 +440,32 @@ export function ScanReviewView({ group, scan }: { group: GroupDto; scan: ScanDet
               {t("scanReview.foreignNote", { currency, groupCurrency: group.currency })}
             </p>
           )}
-          <details>
-            <summary className="cursor-pointer text-sm font-medium text-gray-500 hover:text-gray-700">
-              {t("scanReview.showPhoto")}
-            </summary>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`/api/receipts/${scan.id}/image`}
-              alt={t("scanReview.photoAlt")}
-              loading="lazy"
-              className="mt-2 max-h-[70vh] w-full rounded-lg border border-gray-200 object-contain"
-            />
-          </details>
+          {scan.hasImage && (
+            <details>
+              <summary className="cursor-pointer text-sm font-medium text-gray-500 hover:text-gray-700">
+                {t("scanReview.showPhoto")}
+              </summary>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/api/receipts/${scan.id}/image`}
+                alt={t("scanReview.photoAlt")}
+                loading="lazy"
+                className="mt-2 max-h-[70vh] w-full rounded-lg border border-gray-200 object-contain"
+              />
+            </details>
+          )}
+          {scan.hasImage && (
+            // Data minimization: the photo is deleted on conversion unless the
+            // user explicitly opts to keep it (RFC 04/08).
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-gray-500">
+              <input
+                type="checkbox"
+                checked={keepImage}
+                onChange={(e) => setKeepImage(e.target.checked)}
+              />
+              {t("scanReview.keepPhoto")}
+            </label>
+          )}
         </div>
 
         {mismatch && (

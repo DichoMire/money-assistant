@@ -32,6 +32,14 @@ export type ParsedReceipt = {
 
 export const MAX_RECEIPT_ITEMS = 100;
 
+/**
+ * Human-readable name of the vendor receipt photos are sent to, shown in the
+ * upload-page transparency notice and named in the privacy policy. Override
+ * (build-time env) when RECEIPT_API_URL points somewhere else, and keep
+ * docs/ROPA.md + /privacy in sync.
+ */
+export const RECEIPT_LLM_VENDOR = process.env.NEXT_PUBLIC_RECEIPT_LLM_VENDOR ?? "OpenRouter";
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** The extraction instructions sent with every receipt image. */

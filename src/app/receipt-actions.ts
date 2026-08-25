@@ -298,6 +298,7 @@ async function persistScanEdits(
         discountsCents,
         discountPercentBp: input.discountPercentBp,
         totalCents: input.totalCents,
+        keepImage: input.keepImage === true,
         reconciles: reconcile({ ...input, discountsCents, items }).ok,
         updatedAt: new Date(),
       })
@@ -380,6 +381,12 @@ export async function convertScan(
       .update(receiptScans)
       .set({ expenseId: result.id, status: "converted", updatedAt: new Date() })
       .where(eq(receiptScans.id, scan.id));
+    // Data minimization: the photo served its purpose (review). Delete it
+    // unless the user checked "keep the photo" — imageHash stays on the scan,
+    // so re-uploading the same photo still dedupes to this scan.
+    if (input.keepImage !== true) {
+      await db.delete(receiptScanImages).where(eq(receiptScanImages.scanId, scan.id));
+    }
     await logActivity(db, scan.groupId, user, "receipt.converted", {
       merchant: input.merchant,
       amountCents: totals.grandTotalCents,
