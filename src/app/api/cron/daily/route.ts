@@ -1,7 +1,8 @@
 import { and, eq, lt, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { groupInvites, rateLimits } from "@/db/schema";
+import { groupInvites, notifications, rateLimits, verificationTokens } from "@/db/schema";
+import { runDailyDigest } from "@/lib/email";
 import { refreshRates } from "@/lib/rates-fetch";
 
 export const dynamic = "force-dynamic";
@@ -43,11 +44,21 @@ export async function GET(request: Request) {
            OR (expense_id IS NULL AND updated_at < now() - interval '30 days')
       )
     `);
+    // Notification housekeeping: the bell is a recency surface (90-day
+    // retention; activity_log remains the archive) + expired magic-link
+    // tokens die here too.
+    await db
+      .delete(notifications)
+      .where(lt(notifications.createdAt, sql`now() - interval '90 days'`));
+    await db.delete(verificationTokens).where(lt(verificationTokens.expires, new Date()));
+    // The email digest (no-op until RESEND_API_KEY/EMAIL_FROM exist).
+    const digest = await runDailyDigest(db);
     const result = {
       ok: true,
       ...rates,
       expiredInvites: expired.length,
       purgedImages: (purged as unknown as { rowCount?: number }).rowCount ?? 0,
+      digest,
     };
     // Dead-man's switch: ping an external monitor on SUCCESS only, so silence
     // (a failing or never-running cron) raises an alert there. Optional.

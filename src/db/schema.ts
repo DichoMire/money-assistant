@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   customType,
@@ -12,6 +13,7 @@ import {
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
+import type { NotifyPrefs } from "@/lib/types";
 
 // Postgres bytea (drizzle pg-core has no built-in). toDriver hands over a
 // Buffer: PGlite serializes Uint8Array natively, and the Neon HTTP driver
@@ -47,8 +49,70 @@ export const users = pgTable("users", {
    */
   plan: text("plan").notNull().default("free"),
   planExpiresAt: timestamp("plan_expires_at"),
+  /**
+   * The recipient's UI language for email (RFC 07): a sender's cookie can't
+   * tell us what language user B reads. Captured at sign-in and on every
+   * locale toggle; the cookie stays authoritative for the UI itself.
+   */
+  locale: text("locale").notNull().default("en"),
+  /** Per-type × per-channel notification preferences (defaults live in code). */
+  notifyPrefs: jsonb("notify_prefs").$type<NotifyPrefs>().notNull().default({}),
+  /** Global email kill-switch (one-click unsubscribe "all"). */
+  unsubscribedAt: timestamp("unsubscribed_at"),
+  /** Bearer token for no-login unsubscribe links; rotatable. */
+  unsubscribeToken: text("unsubscribe_token")
+    .notNull()
+    .default(sql`gen_random_uuid()`),
+  /** Auth.js email-provider expectation; Google rows verified at entry. */
+  emailVerified: timestamp("email_verified"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+/**
+ * Per-recipient notifications, written by the same server actions that write
+ * activity_log (no separate event system). Snapshots are denormalized so rows
+ * stay renderable after what they reference is deleted; details are typed
+ * {key,params}-style data rendered in the VIEWER's locale — never prose.
+ * The bell is a recency surface: rows older than 90 days are cron-purged
+ * (activity_log remains the archive).
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    /** expense/invite/scan id — no FK on purpose (survives deletion). */
+    refId: uuid("ref_id"),
+    actorName: text("actor_name").notNull(),
+    groupName: text("group_name").notNull(),
+    details: jsonb("details").$type<Record<string, unknown>>().notNull(),
+    readAt: timestamp("read_at"),
+    /** Set when emailed immediately OR included in a digest. */
+    emailedAt: timestamp("emailed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("notifications_user_unread_idx").on(t.userId, t.readAt),
+    index("notifications_user_email_idx").on(t.userId, t.emailedAt),
+  ]
+);
+
+/** Auth.js email magic-link verification tokens (minimal custom adapter). */
+export const verificationTokens = pgTable(
+  "verification_tokens",
+  {
+    identifier: text("identifier").notNull(),
+    token: text("token").notNull(),
+    expires: timestamp("expires").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.identifier, t.token] })]
+);
 
 // The owner FK is RESTRICT on purpose: account deletion explicitly deletes or
 // transfers owned groups first (account-actions.ts), so the only thing a

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { auth, devLoginEnabled, hasGoogleAuth, signIn } from "@/auth";
+import { auth, devLoginEnabled, hasGoogleAuth, magicLinkEnabled, signIn } from "@/auth";
 import { BrandMark } from "@/components/BrandMark";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { OpenInBrowserHint } from "@/components/OpenInBrowserHint";
@@ -51,6 +51,30 @@ export default async function LoginPage({
               </svg>
               {t("login.continueWithGoogle")}
             </button>
+          </form>
+        )}
+
+        {magicLinkEnabled && (
+          <form
+            className="mt-4 border-t border-gray-100 pt-4"
+            action={async (formData: FormData) => {
+              "use server";
+              await signIn("magic", { email: formData.get("email"), redirectTo });
+            }}
+          >
+            <p className="label !mb-2 text-left">{t("login.magicTitle")}</p>
+            <div className="flex gap-2">
+              <input
+                name="email"
+                type="email"
+                required
+                placeholder="you@example.com"
+                className="input"
+              />
+              <button type="submit" className="btn btn-secondary shrink-0">
+                {t("login.magicSend")}
+              </button>
+            </div>
           </form>
         )}
 

@@ -9,7 +9,12 @@ import {
   updateProfile,
 } from "@/app/account-actions";
 import { deleteGroup } from "@/app/actions";
-import type { DeletionOverview } from "@/lib/types";
+import {
+  getNotifySettings,
+  resubscribeEmails,
+  updateNotifyPrefs,
+} from "@/app/notification-actions";
+import type { DeletionOverview, NotifyPrefs } from "@/lib/types";
 import { LanguageToggle } from "./LanguageToggle";
 import { useT } from "./LocaleProvider";
 import { Modal } from "./Modal";
@@ -120,6 +125,8 @@ export function AccountSettings({ user }: { user: { name: string; email: string 
         </div>
       </div>
 
+      <NotifyPrefsCard />
+
       <div className="card px-5 py-4">
         <p className="mb-1 font-semibold text-gray-800">{t("account.dataPrivacy")}</p>
         <p className="mb-3 text-xs text-gray-400">{t("account.exportHint")}</p>
@@ -155,6 +162,79 @@ export function AccountSettings({ user }: { user: { name: string; email: string 
       {paymentOpen && <PaymentDetailsModal onClose={() => setPaymentOpen(false)} />}
       {deleteOpen && (
         <DeleteAccountModal email={user.email} onClose={() => setDeleteOpen(false)} />
+      )}
+    </div>
+  );
+}
+
+/** Notification preferences (RFC 07 §3.5): digest cadence + the two
+ *  immediate-email toggles. In-app notifications have no switch — the bell
+ *  is product UI, not a communication. */
+function NotifyPrefsCard() {
+  const t = useT();
+  const [state, setState] = useState<{ prefs: NotifyPrefs; unsubscribedAll: boolean } | null>(null);
+
+  useEffect(() => {
+    getNotifySettings().then(setState).catch(() => {});
+  }, []);
+
+  const patch = (p: Partial<NotifyPrefs>) => {
+    if (!state) return;
+    const prefs = { ...state.prefs, ...p };
+    setState({ ...state, prefs });
+    void updateNotifyPrefs(prefs);
+  };
+
+  if (!state) return null;
+  const prefs = state.prefs;
+  return (
+    <div className="card px-5 py-4">
+      <p className="mb-3 font-semibold text-gray-800">{t("notifyPrefs.title")}</p>
+      {state.unsubscribedAll ? (
+        <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <p>{t("notifyPrefs.unsubscribedAll")}</p>
+          <button
+            type="button"
+            className="mt-2 cursor-pointer rounded-md border border-amber-300 px-2.5 py-1 text-xs font-semibold hover:bg-amber-100"
+            onClick={() => {
+              setState({ ...state, unsubscribedAll: false });
+              void resubscribeEmails();
+            }}
+          >
+            {t("notifyPrefs.resubscribe")}
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-3 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-gray-700">{t("notifyPrefs.digest")}</span>
+            <select
+              className="input !w-auto !py-1.5"
+              value={prefs.digest ?? "daily"}
+              onChange={(e) => patch({ digest: e.target.value as NotifyPrefs["digest"] })}
+            >
+              <option value="daily">{t("notifyPrefs.digestDaily")}</option>
+              <option value="weekly">{t("notifyPrefs.digestWeekly")}</option>
+              <option value="off">{t("notifyPrefs.digestOff")}</option>
+            </select>
+          </div>
+          {(
+            [
+              ["emailAddedToGroup", t("notifyPrefs.addedToGroup")],
+              ["emailReminders", t("notifyPrefs.reminders")],
+            ] as const
+          ).map(([key, label]) => (
+            <label key={key} className="flex cursor-pointer items-center justify-between gap-3">
+              <span className="text-gray-700">{label}</span>
+              <input
+                type="checkbox"
+                checked={prefs[key] !== false}
+                onChange={(e) => patch({ [key]: e.target.checked })}
+              />
+            </label>
+          ))}
+          <p className="text-xs text-gray-400">{t("notifyPrefs.hint")}</p>
+        </div>
       )}
     </div>
   );

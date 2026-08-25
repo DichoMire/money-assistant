@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { sendSettleReminder } from "@/app/notification-actions";
 import { getMyPaymentProfile } from "@/app/payment-actions";
 import { formatDate } from "@/lib/format";
 import { formatCents } from "@/lib/money";
@@ -70,6 +71,15 @@ export function BalancesPanel({
         url: `${groupUrl()}?ref=summary-share`,
       })
     );
+  };
+
+  const [reminderState, setReminderState] = useState<Record<string, "sent" | "error" | string>>({});
+  const remind = async (d: Debt) => {
+    const result = await sendSettleReminder(data.id, d.fromAliasId);
+    setReminderState((prev) => ({
+      ...prev,
+      [d.fromAliasId]: result.ok ? "sent" : result.error,
+    }));
   };
 
   const requestPayment = async (d: Debt) => {
@@ -202,7 +212,7 @@ export function BalancesPanel({
             {debts.map((d, i) => (
               <li
                 key={`${d.fromAliasId}-${d.toAliasId}-${i}`}
-                className="flex items-center gap-2 text-sm"
+                className="flex flex-wrap items-center gap-2 text-sm"
               >
                 <Avatar id={d.fromAliasId} name={name(d.fromAliasId)} size={24} />
                 <span className="min-w-0 flex-1 truncate text-gray-700">
@@ -213,17 +223,38 @@ export function BalancesPanel({
                 <span className="font-bold text-gray-800">
                   {money(d.amountCents)}
                 </span>
-                {/* Creditor-side "request payment" share — only on rows where
-                    the signed-in user is the one owed money. */}
+                {/* Creditor-side helpers — only on rows where the signed-in
+                    user is the one owed money. */}
                 {myAliasId !== null && d.toAliasId === myAliasId && (
-                  <button
-                    type="button"
-                    className="btn btn-secondary !px-2 !py-1 !text-xs"
-                    title={t("payment.requestShare")}
-                    onClick={() => void requestPayment(d)}
-                  >
-                    {shared === `req-${d.fromAliasId}` ? t("payment.copied") : "📤"}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-secondary !px-2 !py-1 !text-xs"
+                      title={t("payment.requestShare")}
+                      onClick={() => void requestPayment(d)}
+                    >
+                      {shared === `req-${d.fromAliasId}` ? t("payment.copied") : "📤"}
+                    </button>
+                    {/* „Напомни" exists only when the debtor is a real
+                        account (nobody to remind behind a virtual member). */}
+                    {data.aliases.find((a) => a.id === d.fromAliasId)?.userId && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary !px-2 !py-1 !text-xs"
+                        disabled={reminderState[d.fromAliasId] === "sent"}
+                        title={
+                          reminderState[d.fromAliasId] && reminderState[d.fromAliasId] !== "sent"
+                            ? reminderState[d.fromAliasId]
+                            : undefined
+                        }
+                        onClick={() => void remind(d)}
+                      >
+                        {reminderState[d.fromAliasId] === "sent"
+                          ? t("reminder.sent")
+                          : t("reminder.button")}
+                      </button>
+                    )}
+                  </>
                 )}
                 <button
                   type="button"

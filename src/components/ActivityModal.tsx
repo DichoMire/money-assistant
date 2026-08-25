@@ -69,6 +69,8 @@ function describe(entry: ActivityEntryDto, t: TFunc, locale: Locale): string {
       return t("activity.receiptConverted", { merchant, amount: money() });
     case "receipt.deleted":
       return t("activity.receiptDeleted", { merchant, amount: money() });
+    case "reminder.sent":
+      return t("activity.reminderSent", { name: s("name"), amount: money() });
     default:
       return entry.action;
   }

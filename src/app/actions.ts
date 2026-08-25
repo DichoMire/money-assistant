@@ -19,6 +19,7 @@ import {
   DATE_RE,
   fail,
   logActivity,
+  notifyUsers,
   requireRole,
   requireUser,
   revalidateGroup,
@@ -488,7 +489,7 @@ export async function addCircleMember(groupId: string, targetUserId: string): Pr
     const user = await requireUser();
     const db = await getDb();
     const t = await getT();
-    await requireRole(db, groupId, user.id, "owner");
+    const { group } = await requireRole(db, groupId, user.id, "owner");
     const circle = await loadCircle(user.id);
     if (!circle.some((c) => c.userId === targetUserId)) {
       return { ok: false, error: t("errors.onlyAddCircle") };
@@ -504,6 +505,12 @@ export async function addCircleMember(groupId: string, targetUserId: string): Pr
     await logActivity(db, groupId, user, "member.joined", {
       name: target.name ?? target.email.split("@")[0],
       via: "circle",
+    });
+    await notifyUsers(db, [targetUserId], {
+      groupId,
+      groupName: group.name,
+      type: "group.added_you",
+      actor: user,
     });
     revalidateGroup(groupId);
     return { ok: true };
@@ -628,6 +635,16 @@ export async function acceptInvite(token: string): Promise<ActionResult> {
       name: user.name,
       via: "link",
     });
+    const joinedGroup = (await db.select().from(groups).where(eq(groups.id, invite.groupId)))[0];
+    if (joinedGroup) {
+      await notifyUsers(db, [joinedGroup.userId], {
+        groupId: invite.groupId,
+        groupName: joinedGroup.name,
+        type: "member.joined",
+        actor: user,
+        details: { name: user.name },
+      });
+    }
     revalidateGroup(invite.groupId);
     return { ok: true, id: invite.groupId };
   } catch (e) {
@@ -679,7 +696,9 @@ export async function saveExpense(input: ExpenseInput): Promise<ActionResult> {
     // Everything that mutates runs in one transaction: a mid-flight failure
     // must never leave an expense stripped of its payers/shares (the balance
     // math would then silently skip it).
-    const txResult = await withTransaction<{ error: string } | { expenseId: string }>(
+    const txResult = await withTransaction<
+      { error: string } | { expenseId: string; isUpdate: boolean; oldParticipantAliasIds: string[] }
+    >(
       async (tx) => {
         let expenseId = input.id;
         let oldExpense: typeof expenses.$inferSelect | null = null;
@@ -764,10 +783,37 @@ export async function saveExpense(input: ExpenseInput): Promise<ActionResult> {
             date: input.date,
           });
         }
-        return { expenseId: expenseId! };
+        return {
+          expenseId: expenseId!,
+          isUpdate: oldExpense !== null,
+          oldParticipantAliasIds: [
+            ...oldPayers.map((p) => p.aliasId),
+            ...oldShares.map((s) => s.aliasId),
+          ],
+        };
       }
     );
     if ("error" in txResult) return { ok: false, error: txResult.error };
+
+    // Notify the real accounts behind every participating alias (old + new
+    // on edits), minus the actor — after the commit, best-effort.
+    const participantAliasIds = new Set([
+      ...input.payers.map((p) => p.aliasId),
+      ...input.splits.map((s) => s.aliasId),
+      ...txResult.oldParticipantAliasIds,
+    ]);
+    await notifyUsers(
+      db,
+      groupAliases.filter((a) => participantAliasIds.has(a.id)).map((a) => a.userId),
+      {
+        groupId: input.groupId,
+        groupName: group.name,
+        type: txResult.isUpdate ? "expense.updated" : "expense.involves_you",
+        refId: txResult.expenseId,
+        actor: user,
+        details: { description, amountCents: input.amountCents, currency: input.currency },
+      }
+    );
     revalidateGroup(input.groupId);
     return { ok: true, id: txResult.expenseId };
   } catch (e) {
@@ -899,6 +945,21 @@ export async function saveSettlement(input: SettlementInput): Promise<ActionResu
       }
     );
     if ("error" in txResult) return { ok: false, error: txResult.error };
+
+    // Notify the two sides of the payment (real accounts only, minus actor).
+    const sideAliasIds = new Set([input.fromAliasId, input.toAliasId]);
+    await notifyUsers(
+      db,
+      groupAliases.filter((a) => sideAliasIds.has(a.id)).map((a) => a.userId),
+      {
+        groupId: input.groupId,
+        groupName: group.name,
+        type: input.id ? "payment.updated" : "payment.received",
+        refId: txResult.expenseId,
+        actor: user,
+        details: { amountCents: input.amountCents, currency: input.currency },
+      }
+    );
     revalidateGroup(input.groupId);
     return { ok: true, id: txResult.expenseId };
   } catch (e) {
@@ -913,7 +974,21 @@ export async function deleteExpense(expenseId: string): Promise<ActionResult> {
     const rows = await db.select().from(expenses).where(eq(expenses.id, expenseId));
     const expense = rows[0];
     if (!expense) return { ok: false, error: (await getT())("errors.expenseNotFound") };
-    await requireRole(db, expense.groupId, user.id, "member");
+    const { group } = await requireRole(db, expense.groupId, user.id, "member");
+
+    // Capture the real accounts behind the participants before the rows go.
+    const [payerUsers, shareUsers] = await Promise.all([
+      db
+        .select({ userId: aliases.userId })
+        .from(expensePayers)
+        .innerJoin(aliases, eq(expensePayers.aliasId, aliases.id))
+        .where(eq(expensePayers.expenseId, expenseId)),
+      db
+        .select({ userId: aliases.userId })
+        .from(expenseShares)
+        .innerJoin(aliases, eq(expenseShares.aliasId, aliases.id))
+        .where(eq(expenseShares.expenseId, expenseId)),
+    ]);
 
     // Capture the participants for the log before their rows disappear.
     let logDetails: Record<string, unknown>;
@@ -956,6 +1031,21 @@ export async function deleteExpense(expenseId: string): Promise<ActionResult> {
         logDetails
       );
     });
+    await notifyUsers(
+      db,
+      [...payerUsers, ...shareUsers].map((r) => r.userId),
+      {
+        groupId: expense.groupId,
+        groupName: group.name,
+        type: expense.kind === "settlement" ? "payment.deleted" : "expense.deleted",
+        actor: user,
+        details: {
+          description: expense.description,
+          amountCents: expense.amountCents,
+          currency: expense.currency,
+        },
+      }
+    );
     revalidateGroup(expense.groupId);
     return { ok: true };
   } catch (e) {

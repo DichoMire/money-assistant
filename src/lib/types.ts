@@ -120,6 +120,30 @@ export type SettlementInput = {
 
 export type ActionResult = { ok: true; id?: string } | { ok: false; error: string };
 
+// ---------- Notifications (RFC 07) ----------
+
+/**
+ * Notification preferences stored on users.notify_prefs. Defaults are applied
+ * in code, not stored: digest "daily", both immediates true. The in-app bell
+ * has no preference — it is the product UI, not a communication.
+ */
+export type NotifyPrefs = {
+  digest?: "daily" | "weekly" | "off";
+  emailAddedToGroup?: boolean;
+  emailReminders?: boolean;
+};
+
+export type NotificationDto = {
+  id: string;
+  groupId: string;
+  groupName: string;
+  type: string;
+  actorName: string;
+  details: Record<string, unknown>;
+  readAt: string | null;
+  createdAt: string;
+};
+
 // ---------- Payment profiles (RFC 03) ----------
 
 export type PaymentProfileDto = {
